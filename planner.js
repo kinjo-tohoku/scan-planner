@@ -282,6 +282,27 @@
     return { qx: qxs, qy: qys, z: cells };
   }
 
+  // In-plane integer (h,k,l) Bragg reflections with |Q| ≤ qmax, as (Qx,Qy) markers.
+  // No space-group absences (P1: every integer reflection).
+  function reflections(cfg, qmax) {
+    var bl = build(cfg), spec = bl.spec;
+    if (!(qmax > 0)) qmax = 6.0;
+    var col = function (j) { return [spec.B[0][j], spec.B[1][j], spec.B[2][j]]; };
+    var minr = Math.min(norm(col(0)), norm(col(1)), norm(col(2)));
+    var hmax = Math.min(25, Math.ceil(qmax / Math.max(minr, 1e-6)) + 1);
+    var out = [], tol = 1e-4;
+    for (var h = -hmax; h <= hmax; h++)
+      for (var k = -hmax; k <= hmax; k++)
+        for (var l = -hmax; l <= hmax; l++) {
+          if (!h && !k && !l) continue;
+          var Q = matVec(spec.B, [h, k, l]), Qmag = norm(Q);
+          if (Qmag > qmax) continue;
+          if (Math.abs(dot(Q, spec.n)) > tol * Math.max(1, Qmag)) continue;
+          out.push({ h: h, k: k, l: l, qx: r4(dot(Q, spec.e1)), qy: r4(dot(Q, spec.e2)) });
+        }
+    return out;
+  }
+
   // --- .scn text generation ----------------------------------------------
   function gfmt(x) {                 // mimic Python's %g for scan coordinates
     x = +x;
@@ -417,7 +438,7 @@
     Unreachable: Unreachable,
     build: build, anglesRaw: function (cfg, hkl, e) { return angles(buildSpec(cfg), hkl, e); },
     check_point: function (cfg, hkl, e) { var b = build(cfg); return checkPoint(b.spec, b.limits, hkl, e); },
-    evaluate: evaluate, grid: grid, gridQ: gridQ, to_scn: to_scn,
+    evaluate: evaluate, grid: grid, gridQ: gridQ, reflections: reflections, to_scn: to_scn,
     evaluate_map: evaluate_map, map_to_scn: map_to_scn
   };
 

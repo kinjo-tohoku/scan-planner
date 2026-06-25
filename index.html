@@ -209,20 +209,20 @@
         <label>k start<input id="k0" value="0" oninput="onScanInput()"></label>
         <label>l start<input id="l0" value="0"></label>
         <label>E start<input id="E0" value="0" oninput="onScanInput()"></label>
-        <label>h end<input id="h1" value="1" oninput="onScanInput()"></label>
+        <label>h end<input id="h1" value="2" oninput="onScanInput()"></label>
         <label>k end<input id="k1" value="0" oninput="onScanInput()"></label>
         <label>l end<input id="l1" value="0"></label>
-        <label>E end<input id="E1" value="10" oninput="onScanInput()"></label>
-        <label>&Delta;h<input id="dh" value="0" oninput="onScanInput()"></label>
+        <label>E end<input id="E1" value="0" oninput="onScanInput()"></label>
+        <label>&Delta;h<input id="dh" value="0.05" oninput="onScanInput()"></label>
         <label>&Delta;k<input id="dk" value="0" oninput="onScanInput()"></label>
         <label>&Delta;l<input id="dl" value="0"></label>
-        <label>&Delta;E<input id="dE" value="1" oninput="onScanInput()"></label>
+        <label>&Delta;E<input id="dE" value="0" oninput="onScanInput()"></label>
       </div>
       <div class="grid g2" style="margin-top:6px">
         <label>monitor MN<input id="mon" value="10000"></label>
         <label title="Adaptive counting (NT) — not implemented yet" style="opacity:.5">NT (not implemented)<input id="nt" value="0" disabled></label>
       </div>
-      <div class="hint" style="margin-top:4px" title="NP = floor((end − start) / Δ) + 1 on the swept axis (axis with Δ≠0). Δ=0 axes stay fixed at start.">&rarr; NP = <b id="npshow">11</b> points (computed from start, end, &Delta; on the swept axis)</div>
+      <div class="hint" style="margin-top:4px" title="NP = floor((end − start) / Δ) + 1 on the swept axis (axis with Δ≠0). Δ=0 axes stay fixed at start.">&rarr; NP = <b id="npshow">21</b> points (computed from start, end, &Delta; on the swept axis)</div>
       <div id="mapfields" style="display:none">
         <div class="row" style="margin-top:10px;align-items:center">
           <span class="hint" style="margin:0">Map type</span>
@@ -277,6 +277,7 @@
 const $ = id => document.getElementById(id);
 const num = id => parseFloat($(id).value);
 let lastGrid = null;
+let lastRefl = null;   // in-plane Bragg reflections (Qx,Qy markers)
 
 function toggleHelp(open){ $('help').classList.toggle('open', open); }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') toggleHelp(false); });
@@ -397,6 +398,10 @@ async function api(path, body){
     const g = body.grid||{};
     return P.gridQ(body.config, g.e??0, clampi(g.n??51, 2, MAX_GRID_N), g.qmax??0);
   }
+  if(ep==='reflections'){
+    const r = body.refl||{};
+    return { items: P.reflections(body.config, r.qmax??6) };
+  }
   if(ep==='export'){
     body.scan.npts = clampi(body.scan.npts||1, 1, MAX_NPTS);
     return { scn: P.to_scn(body.config, body.scan, body.scan_no||1) };
@@ -493,6 +498,13 @@ function hkAxes(xs, ys, xt, yt){
   };
 }
 
+// Nuclear Bragg reflections as open markers on the (Qx,Qy) plane (hover = h,k,l).
+function reflTrace(traces){
+  if(!lastRefl || !lastRefl.length) return;
+  traces.push({x:lastRefl.map(r=>r.qx), y:lastRefl.map(r=>r.qy), mode:'markers',
+    name:'Bragg (h k l)', text:lastRefl.map(r=>`(${r.h} ${r.k} ${r.l})`), hoverinfo:'text',
+    marker:{color:'rgba(185,205,255,0.6)', size:7, symbol:'circle-open', line:{width:1.2}}});
+}
 function plot(pts){
   const span=c=>{const v=pts.map(p=>p[c]); return Math.max(...v)-Math.min(...v);};
   const vH=span('h')>1e-9, vK=span('k')>1e-9, vE=span('E')>1e-9;
@@ -510,6 +522,7 @@ function plotHK(pts){
       colorscale:[[0,'rgba(248,81,73,0.10)'],[0.5,'rgba(248,81,73,0.10)'],
                   [0.5,'rgba(46,160,67,0.22)'],[1,'rgba(46,160,67,0.22)']], zmin:0, zmax:1});
   }
+  reflTrace(traces);
   const ok={x:[],y:[],t:[]}, bad={x:[],y:[],t:[]};
   pts.forEach((p,i)=>{ const d=p.reachable?ok:bad;
     d.x.push(p.qx); d.y.push(p.qy); d.t.push(hover(p,i,`(${p.h},${p.k},${p.l}) E=${p.E}`)); });
@@ -564,6 +577,7 @@ function plotMap(lines, dropped){
       colorscale:[[0,'rgba(248,81,73,0.10)'],[0.5,'rgba(248,81,73,0.10)'],
                   [0.5,'rgba(46,160,67,0.22)'],[1,'rgba(46,160,67,0.22)']], zmin:0, zmax:1});
   }
+  if(bg) reflTrace(traces);
   lines.forEach(ln=> traces.push({x:ln.points.map(p=>p[xk]), y:ln.points.map(p=>p[yk]),
     mode:'lines', line:{color:'rgba(139,152,165,0.4)',width:1}, hoverinfo:'skip', showlegend:false}));
   if(dropped && dropped.length){    // points dropped by auto-fit (reference)
@@ -598,7 +612,10 @@ async function runEvaluate(){
   showErr('');
   try{
     const e = isMap() ? getMap().start[3] : getScan().start[3];
-    lastGrid = await api('/api/gridq',{config:getConfig(), grid:{e, n:51}});
+    const cfg = getConfig();
+    lastGrid = await api('/api/gridq',{config:cfg, grid:{e, n:51}});
+    const qmax = lastGrid.qx[lastGrid.qx.length-1];
+    lastRefl = (await api('/api/reflections',{config:cfg, refl:{qmax}})).items;
     await evalScan();
   }catch(e){ showErr(e.message); }
 }
