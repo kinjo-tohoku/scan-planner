@@ -245,7 +245,7 @@
     <div class="card">
       <h2>Per-point results</h2>
       <div class="tablewrap"><table id="tbl"><thead><tr>
-        <th>#</th><th>h</th><th>k</th><th>l</th><th>E</th><th class="l">status</th>
+        <th>#</th><th>h</th><th>k</th><th>l</th><th>E</th><th title="|Q| [Å⁻¹]">|Q|</th><th title="d-spacing [Å] = 2π/|Q|">d</th><th class="l">status</th>
         <th>C1</th><th>A1</th><th>C2</th><th>A2</th><th>C3</th><th>A3</th>
       </tr></thead><tbody></tbody></table></div>
     </div>
@@ -316,7 +316,7 @@ function preset(kind){
   if(kind==='E'){ $('dE').value=0.5; $('E1').value=(num('E0')+10).toFixed(3); }   // 21 pts
   if(kind==='h'){ $('dh').value=0.05; $('h1').value=(num('h0')+1.0).toFixed(3); } // 21 pts
   if(kind==='k'){ $('dk').value=0.05; $('k1').value=(num('k0')+1.0).toFixed(3); } // 21 pts
-  onScanInput();
+  onScanInput(); scheduleEval();
 }
 function isMap(){ return document.querySelector('input[name=mode]:checked').value==='map'; }
 function setMode(){ const m=isMap(); $('mapfields').style.display=m?'block':'none'; if(m) setMapType(); }
@@ -430,7 +430,7 @@ function renderMapTable(lines){
                            : '<span class="bad">✗ '+(p.reason||'')+'</span>';
     const c = k => a[k]!==undefined ? a[k].toFixed(2) : '—';
     tb.insertAdjacentHTML('beforeend',
-      `<tr><td>${li+1}.${pi+1}</td><td>${p.h}</td><td>${p.k}</td><td>${p.l}</td><td>${p.E}</td>`
+      `<tr><td>${li+1}.${pi+1}</td><td>${p.h}</td><td>${p.k}</td><td>${p.l}</td><td>${p.E}</td><td>${p.q!=null?p.q.toFixed(3):'—'}</td><td>${p.d!=null?p.d.toFixed(3):'—'}</td>`
       +`<td class="l">${st}</td><td>${c('C1')}</td><td>${c('A1')}</td><td>${c('C2')}</td>`
       +`<td>${c('A2')}</td><td>${c('C3')}</td><td>${c('A3')}</td></tr>`);
   }));
@@ -444,7 +444,7 @@ function renderTable(pts){
       : '<span class="bad">✗ '+ (p.reason||'') +'</span>';
     const c = k => a[k]!==undefined ? a[k].toFixed(2) : '—';
     tb.insertAdjacentHTML('beforeend',
-      `<tr><td>${i+1}</td><td>${p.h}</td><td>${p.k}</td><td>${p.l}</td><td>${p.E}</td>`
+      `<tr><td>${i+1}</td><td>${p.h}</td><td>${p.k}</td><td>${p.l}</td><td>${p.E}</td><td>${p.q!=null?p.q.toFixed(3):'—'}</td><td>${p.d!=null?p.d.toFixed(3):'—'}</td>`
       +`<td class="l">${st}</td><td>${c('C1')}</td><td>${c('A1')}</td><td>${c('C2')}</td>`
       +`<td>${c('A2')}</td><td>${c('C3')}</td><td>${c('A3')}</td></tr>`);
   });
@@ -456,6 +456,25 @@ const PLOT_BASE={margin:{l:50,r:10,t:10,b:40}, paper_bgcolor:'#1a2129',
 const hover=(p,i,extra)=> `#${i+1} ${extra}<br>`
   + (p.reachable ? Object.entries(p.angles).map(([k,v])=>k+'='+v.toFixed(1)).join(' ')
                  : '✗ '+p.reason);
+
+// Centered square (h,k) axes with true (equal) aspect. constrain:'domain' shrinks
+// the drawing area to a square instead of padding one side, so the plane isn't
+// jammed into a corner with large empty bands.
+function hkAxes(hs, ks){
+  const H=hs.filter(isFinite), K=ks.filter(isFinite);
+  let cx=0, cy=0, half=1;
+  if(H.length && K.length){
+    const hmin=Math.min(...H), hmax=Math.max(...H), kmin=Math.min(...K), kmax=Math.max(...K);
+    cx=(hmin+hmax)/2; cy=(kmin+kmax)/2;
+    half=Math.max(hmax-hmin, kmax-kmin)/2 * 1.06;
+    if(!isFinite(half) || half<1e-6) half=1;
+  }
+  const base=t=>({title:t, gridcolor:'#30363d', zerolinecolor:'#444', constrain:'domain'});
+  return {
+    xaxis:Object.assign(base('h'), {range:[cx-half, cx+half]}),
+    yaxis:Object.assign(base('k'), {range:[cy-half, cy+half], scaleanchor:'x', scaleratio:1})
+  };
+}
 
 function plot(pts){
   const span=c=>{const v=pts.map(p=>p[c]); return Math.max(...v)-Math.min(...v);};
@@ -481,10 +500,9 @@ function plotHK(pts){
     marker:{color:'#2ea043',size:9,line:{color:'#fff',width:0.5}}});
   traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
     marker:{color:'#f85149',size:10,symbol:'x'}});
-  Plotly.newPlot('plot',traces,Object.assign({},PLOT_BASE,{
-    xaxis:{title:'h', gridcolor:'#30363d', zerolinecolor:'#444'},
-    yaxis:{title:'k', gridcolor:'#30363d', zerolinecolor:'#444', scaleanchor:'x', scaleratio:1}
-  }),PLOT_CFG);
+  const ax = hkAxes(lastGrid?lastGrid.h:pts.map(p=>p.h),
+                    lastGrid?lastGrid.k:pts.map(p=>p.k));
+  Plotly.newPlot('plot',traces,Object.assign({},PLOT_BASE,ax),PLOT_CFG);
 }
 
 function plot1D(pts, axis){
@@ -542,10 +560,15 @@ function plotMap(lines, dropped){
   traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
     marker:{color:'#f85149',size:9,symbol:'x'}});
   const lab=k=>k+(k==='E'?' [meV]':'');
-  const layout=Object.assign({},PLOT_BASE,{
-    xaxis:{title:lab(xk), gridcolor:'#30363d', zerolinecolor:'#444'},
-    yaxis:{title:lab(yk), gridcolor:'#30363d', zerolinecolor:'#444'}});
-  if(bg){ layout.yaxis.scaleanchor='x'; layout.yaxis.scaleratio=1; }
+  let layout;
+  if(bg){   // const-E (h,k) map → centered square with true aspect
+    layout=Object.assign({},PLOT_BASE, hkAxes(
+      lastGrid?lastGrid.h:all.map(p=>p.h), lastGrid?lastGrid.k:all.map(p=>p.k)));
+  } else {  // dispersion (swept Q, E) → free aspect
+    layout=Object.assign({},PLOT_BASE,{
+      xaxis:{title:lab(xk), gridcolor:'#30363d', zerolinecolor:'#444'},
+      yaxis:{title:lab(yk), gridcolor:'#30363d', zerolinecolor:'#444'}});
+  }
   Plotly.newPlot('plot',traces,layout,PLOT_CFG);
 }
 async function runEvaluate(){
@@ -588,6 +611,25 @@ function downloadScn(){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
   a.download='scan.scn'; a.click();
 }
+
+// --- live auto-evaluate: re-run shortly after any input change (computation is
+//     fast). Skipped while inputs are empty/mid-edit/invalid, so typing is smooth.
+let _evalTimer=null;
+function inputsValid(){
+  const c=getConfig();
+  return [c.a,c.b,c.c,c.kfix].every(x=>isFinite(x)&&x>0)
+      && [c.alpha,c.beta,c.gamma].every(x=>isFinite(x)&&x>0&&x<180);
+}
+function scheduleEval(){
+  clearTimeout(_evalTimer);
+  _evalTimer=setTimeout(()=>{ if(inputsValid()) runEvaluate(); }, 350);
+}
+(function initLive(){
+  const left=document.querySelector('.left');
+  left.addEventListener('input', scheduleEval);   // typing in any field
+  left.addEventListener('change', scheduleEval);   // selects / radios / checkboxes
+  if(inputsValid()) runEvaluate();                 // populate immediately on load
+})();
 </script>
 </body>
 </html>

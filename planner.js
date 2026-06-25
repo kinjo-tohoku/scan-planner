@@ -157,6 +157,11 @@
 
   var r3 = function (x) { return Math.round(x * 1e3) / 1e3; };
   var r4 = function (x) { return Math.round(x * 1e4) / 1e4; };
+  // |Q| [Å⁻¹] and d-spacing [Å] (= 2π/|Q|; null at the origin) for a point.
+  function qd(spec, hkl) {
+    var q = norm(matVec(spec.B, [+hkl[0], +hkl[1], +hkl[2]]));
+    return { q: r4(q), d: q > 1e-9 ? r4(TWO_PI / q) : null };
+  }
 
   function build(cfg) {
     var spec = buildSpec(cfg);
@@ -202,7 +207,9 @@
     var sp = scanPoints(scan);
     for (var i = 0; i < sp.length; i++) {
       var p = sp[i], r = checkPoint(bl.spec, bl.limits, [p[0], p[1], p[2]], p[3]);
+      var qq = qd(bl.spec, [p[0], p[1], p[2]]);
       r.h = r4(p[0]); r.k = r4(p[1]); r.l = r4(p[2]); r.E = r4(p[3]);
+      r.q = qq.q; r.d = qq.d;
       if (r.reachable) n_ok++;
       pts.push(r);
     }
@@ -305,7 +312,9 @@
       var ln = scans[li], pts = [], ok = 0, sp = scanPoints(ln);
       for (var s = 0; s < sp.length; s++) {
         var p = sp[s], r = checkPoint(bl.spec, bl.limits, [p[0], p[1], p[2]], p[3]);
+        var qq = qd(bl.spec, [p[0], p[1], p[2]]);
         r.h = r4(p[0]); r.k = r4(p[1]); r.l = r4(p[2]); r.E = r4(p[3]); r.line = li;
+        r.q = qq.q; r.d = qq.d;
         if (r.reachable) ok++;
         pts.push(r);
       }
