@@ -101,7 +101,7 @@
         <li><b>2. Spectrometer</b> &mdash; fixed <span class="k">ki/kf</span> + value, and the analyzer (PG002/PG004). GPTAS defaults are filled in.</li>
         <li><b>3. Soft limits</b> &mdash; sample motors <span class="k">C2 (&omega;)</span> and <span class="k">A2 (2&theta;)</span>. With kf fixed these are what actually bound a scan.</li>
         <li><b>4. Scan definition</b> &mdash; single line or map (below).</li>
-        <li><b>5. Evaluate</b> &rarr; green = reachable, red &times; = not. <b>Show reachable region</b> overlays the accessible area; <b>Generate .scn</b> writes the filman script.</li>
+        <li><b>5. Evaluate</b> &rarr; green = reachable, red &times; = not, with the reachable region shaded behind (on constant-E h,k views). <b>Generate .scn</b> writes the filman script.</li>
       </ul>
 
       <h3>Start / End / &Delta; &mdash; NP is computed</h3>
@@ -232,7 +232,6 @@
 
     <div class="btns">
       <button onclick="runEvaluate()">&#9654; Evaluate reachability</button>
-      <button class="sec" onclick="showRegion()">Show reachable region</button>
       <button class="sec" onclick="exportScn()">Generate .scn</button>
     </div>
     <div id="err" class="err"></div>
@@ -399,17 +398,14 @@ async function api(path, body){
 }
 function showErr(e){ $('err').textContent = e ? ('⚠ '+e) : ''; }
 
-async function runEvaluate(){
-  showErr('');
-  try{
-    if(isMap()){
-      const res = await api('/api/map',{config:getConfig(), map:getMap()});
-      renderSummary(res); renderMapTable(res.lines); plotMap(res.lines, res.dropped);
-    } else {
-      const res = await api('/api/evaluate',{config:getConfig(), scan:getScan()});
-      renderSummary(res); renderTable(res.points); plot(res.points);
-    }
-  }catch(e){ showErr(e.message); }
+async function evalScan(){
+  if(isMap()){
+    const res = await api('/api/map',{config:getConfig(), map:getMap()});
+    renderSummary(res); renderMapTable(res.lines); plotMap(res.lines, res.dropped);
+  } else {
+    const res = await api('/api/evaluate',{config:getConfig(), scan:getScan()});
+    renderSummary(res); renderTable(res.points); plot(res.points);
+  }
 }
 function renderSummary(res){
   const bad = res.n_total - res.n_reachable;
@@ -552,7 +548,10 @@ function plotMap(lines, dropped){
   if(bg){ layout.yaxis.scaleanchor='x'; layout.yaxis.scaleratio=1; }
   Plotly.newPlot('plot',traces,layout,PLOT_CFG);
 }
-async function showRegion(){
+async function runEvaluate(){
+  // One action: compute the reachable-region background, then evaluate + plot the
+  // scan on top of it. (The region shading shows only on constant-E (h,k) views;
+  // for energy/dispersion views the 1D/Q-E plot is drawn instead.)
   showErr('');
   try{
     let e,l0,hmin,hmax,kmin,kmax;
@@ -569,11 +568,9 @@ async function showRegion(){
       const s=getScan(); e=s.start[3]; l0=s.start[2];
       hmin=s.start[0]-3; hmax=s.start[0]+3; kmin=s.start[1]-3; kmax=s.start[1]+3;
     }
-    const g = await api('/api/grid',{config:getConfig(),
+    lastGrid = await api('/api/grid',{config:getConfig(),
       grid:{e, hmin, hmax, kmin, kmax, n:51, l:l0}});
-    lastGrid = g;
-    // overlay the trajectory if already evaluated, otherwise just the region
-    await runEvaluate();
+    await evalScan();
   }catch(e){ showErr(e.message); }
 }
 async function exportScn(){
