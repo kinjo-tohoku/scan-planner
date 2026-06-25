@@ -380,6 +380,10 @@ async function api(path, body){
     return P.grid(body.config, g.e??0, g.hmin??-3, g.hmax??3, g.kmin??-3, g.kmax??3,
                   clampi(g.n??41, 2, MAX_GRID_N), g.l??0);
   }
+  if(ep==='gridq'){
+    const g = body.grid||{};
+    return P.gridQ(body.config, g.e??0, clampi(g.n??51, 2, MAX_GRID_N), g.qmax??0);
+  }
   if(ep==='export'){
     body.scan.npts = clampi(body.scan.npts||1, 1, MAX_NPTS);
     return { scn: P.to_scn(body.config, body.scan, body.scan_no||1) };
@@ -460,19 +464,19 @@ const hover=(p,i,extra)=> `#${i+1} ${extra}<br>`
 // Centered square (h,k) axes with true (equal) aspect. constrain:'domain' shrinks
 // the drawing area to a square instead of padding one side, so the plane isn't
 // jammed into a corner with large empty bands.
-function hkAxes(hs, ks){
-  const H=hs.filter(isFinite), K=ks.filter(isFinite);
+function hkAxes(xs, ys, xt, yt){
+  const X=xs.filter(isFinite), Y=ys.filter(isFinite);
   let cx=0, cy=0, half=1;
-  if(H.length && K.length){
-    const hmin=Math.min(...H), hmax=Math.max(...H), kmin=Math.min(...K), kmax=Math.max(...K);
-    cx=(hmin+hmax)/2; cy=(kmin+kmax)/2;
-    half=Math.max(hmax-hmin, kmax-kmin)/2 * 1.06;
+  if(X.length && Y.length){
+    const xmin=Math.min(...X), xmax=Math.max(...X), ymin=Math.min(...Y), ymax=Math.max(...Y);
+    cx=(xmin+xmax)/2; cy=(ymin+ymax)/2;
+    half=Math.max(xmax-xmin, ymax-ymin)/2 * 1.06;
     if(!isFinite(half) || half<1e-6) half=1;
   }
   const base=t=>({title:t, gridcolor:'#30363d', zerolinecolor:'#444', constrain:'domain'});
   return {
-    xaxis:Object.assign(base('h'), {range:[cx-half, cx+half]}),
-    yaxis:Object.assign(base('k'), {range:[cy-half, cy+half], scaleanchor:'x', scaleratio:1})
+    xaxis:Object.assign(base(xt||'h'), {range:[cx-half, cx+half]}),
+    yaxis:Object.assign(base(yt||'k'), {range:[cy-half, cy+half], scaleanchor:'x', scaleratio:1})
   };
 }
 
@@ -484,24 +488,26 @@ function plot(pts){
 }
 
 function plotHK(pts){
+  // In-plane scattering plane drawn in Cartesian (Qx,Qy) [Å⁻¹]. Points carry both
+  // crystallographic (h,k,l) (shown in hover) and qx,qy (plot coordinates).
   const traces=[];
   if(lastGrid){
-    traces.push({type:'heatmap', x:lastGrid.h, y:lastGrid.k, z:lastGrid.z,
+    traces.push({type:'heatmap', x:lastGrid.qx, y:lastGrid.qy, z:lastGrid.z,
       transpose:true, showscale:false, hoverinfo:'skip',
       colorscale:[[0,'rgba(248,81,73,0.10)'],[0.5,'rgba(248,81,73,0.10)'],
                   [0.5,'rgba(46,160,67,0.22)'],[1,'rgba(46,160,67,0.22)']], zmin:0, zmax:1});
   }
   const ok={x:[],y:[],t:[]}, bad={x:[],y:[],t:[]};
   pts.forEach((p,i)=>{ const d=p.reachable?ok:bad;
-    d.x.push(p.h); d.y.push(p.k); d.t.push(hover(p,i,`(${p.h},${p.k},${p.l}) E=${p.E}`)); });
-  traces.push({x:pts.map(p=>p.h), y:pts.map(p=>p.k), mode:'lines',
+    d.x.push(p.qx); d.y.push(p.qy); d.t.push(hover(p,i,`(${p.h},${p.k},${p.l}) E=${p.E}`)); });
+  traces.push({x:pts.map(p=>p.qx), y:pts.map(p=>p.qy), mode:'lines',
     line:{color:'rgba(139,152,165,0.5)',width:1}, hoverinfo:'skip', showlegend:false});
   traces.push({x:ok.x,y:ok.y,mode:'markers',name:'reachable',text:ok.t,hoverinfo:'text',
     marker:{color:'#2ea043',size:9,line:{color:'#fff',width:0.5}}});
   traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
     marker:{color:'#f85149',size:10,symbol:'x'}});
-  const ax = hkAxes(lastGrid?lastGrid.h:pts.map(p=>p.h),
-                    lastGrid?lastGrid.k:pts.map(p=>p.k));
+  const ax = hkAxes(lastGrid?lastGrid.qx:pts.map(p=>p.qx),
+                    lastGrid?lastGrid.qy:pts.map(p=>p.qy), 'Qx [Å⁻¹]', 'Qy [Å⁻¹]');
   Plotly.newPlot('plot',traces,Object.assign({},PLOT_BASE,ax),PLOT_CFG);
 }
 
@@ -536,11 +542,11 @@ function plotMap(lines, dropped){
   const span=c=>{const v=all.map(p=>p[c]); return Math.max(...v)-Math.min(...v);};
   const vE=span('E')>1e-9, vH=span('h')>1e-9, vK=span('k')>1e-9;
   let xk,yk,bg=false;
-  if(!vE){ xk='h'; yk='k'; bg=true; }                 // const-E (h,k) map
+  if(!vE){ xk='qx'; yk='qy'; bg=true; }               // const-E plane → (Qx,Qy) [Å⁻¹]
   else { xk = vH?'h':(vK?'k':'h'); yk='E'; }          // dispersion (Q,E) map
   const traces=[];
   if(bg && lastGrid){
-    traces.push({type:'heatmap', x:lastGrid.h, y:lastGrid.k, z:lastGrid.z,
+    traces.push({type:'heatmap', x:lastGrid.qx, y:lastGrid.qy, z:lastGrid.z,
       transpose:true, showscale:false, hoverinfo:'skip',
       colorscale:[[0,'rgba(248,81,73,0.10)'],[0.5,'rgba(248,81,73,0.10)'],
                   [0.5,'rgba(46,160,67,0.22)'],[1,'rgba(46,160,67,0.22)']], zmin:0, zmax:1});
@@ -561,9 +567,10 @@ function plotMap(lines, dropped){
     marker:{color:'#f85149',size:9,symbol:'x'}});
   const lab=k=>k+(k==='E'?' [meV]':'');
   let layout;
-  if(bg){   // const-E (h,k) map → centered square with true aspect
+  if(bg){   // const-E plane → centered square (Qx,Qy) with true aspect
     layout=Object.assign({},PLOT_BASE, hkAxes(
-      lastGrid?lastGrid.h:all.map(p=>p.h), lastGrid?lastGrid.k:all.map(p=>p.k)));
+      lastGrid?lastGrid.qx:all.map(p=>p.qx), lastGrid?lastGrid.qy:all.map(p=>p.qy),
+      'Qx [Å⁻¹]', 'Qy [Å⁻¹]'));
   } else {  // dispersion (swept Q, E) → free aspect
     layout=Object.assign({},PLOT_BASE,{
       xaxis:{title:lab(xk), gridcolor:'#30363d', zerolinecolor:'#444'},
@@ -572,27 +579,13 @@ function plotMap(lines, dropped){
   Plotly.newPlot('plot',traces,layout,PLOT_CFG);
 }
 async function runEvaluate(){
-  // One action: compute the reachable-region background, then evaluate + plot the
-  // scan on top of it. (The region shading shows only on constant-E (h,k) views;
-  // for energy/dispersion views the 1D/Q-E plot is drawn instead.)
+  // One action: compute the reachable-region background (in Qx,Qy), then evaluate
+  // + plot the scan on top of it. The region shading shows on constant-E plane
+  // views; energy/dispersion views draw the 1D / Q-E plot instead.
   showErr('');
   try{
-    let e,l0,hmin,hmax,kmin,kmax;
-    if(isMap()){
-      const m=getMap(); e=m.start[3]; l0=m.start[2];
-      const hs=[],ks=[];
-      for(let i=0;i<m.nlines;i++) for(let p=0;p<m.npts;p++){
-        hs.push(m.start[0]+i*m.outer[0]+p*m.step[0]);
-        ks.push(m.start[1]+i*m.outer[1]+p*m.step[1]);
-      }
-      hmin=Math.min(...hs)-1; hmax=Math.max(...hs)+1;
-      kmin=Math.min(...ks)-1; kmax=Math.max(...ks)+1;
-    } else {
-      const s=getScan(); e=s.start[3]; l0=s.start[2];
-      hmin=s.start[0]-3; hmax=s.start[0]+3; kmin=s.start[1]-3; kmax=s.start[1]+3;
-    }
-    lastGrid = await api('/api/grid',{config:getConfig(),
-      grid:{e, hmin, hmax, kmin, kmax, n:51, l:l0}});
+    const e = isMap() ? getMap().start[3] : getScan().start[3];
+    lastGrid = await api('/api/gridq',{config:getConfig(), grid:{e, n:51}});
     await evalScan();
   }catch(e){ showErr(e.message); }
 }

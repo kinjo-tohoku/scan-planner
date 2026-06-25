@@ -45,6 +45,16 @@
             M[1][0] * v[0] + M[1][1] * v[1] + M[1][2] * v[2],
             M[2][0] * v[0] + M[2][1] * v[1] + M[2][2] * v[2]];
   }
+  function inv3(m) {                // 3x3 inverse (for Q_cart → hkl)
+    var a = m[0][0], b = m[0][1], c = m[0][2],
+        d = m[1][0], e = m[1][1], f = m[1][2],
+        g = m[2][0], h = m[2][1], i = m[2][2];
+    var A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+    var det = a * A + b * B + c * C, id = 1.0 / det;
+    return [[A * id, (c * h - b * i) * id, (b * f - c * e) * id],
+            [B * id, (a * i - c * g) * id, (c * d - a * f) * id],
+            [C * id, (b * g - a * h) * id, (a * e - b * d) * id]];
+  }
   function clampcos(x) { return Math.max(-1.0, Math.min(1.0, x)); }
   var rad = function (d) { return d * Math.PI / 180.0; };
 
@@ -157,10 +167,12 @@
 
   var r3 = function (x) { return Math.round(x * 1e3) / 1e3; };
   var r4 = function (x) { return Math.round(x * 1e4) / 1e4; };
-  // |Q| [Å⁻¹] and d-spacing [Å] (= 2π/|Q|; null at the origin) for a point.
+  // |Q|, d-spacing, and in-plane Cartesian components Qx=Q·e1, Qy=Q·e2 [Å⁻¹].
   function qd(spec, hkl) {
-    var q = norm(matVec(spec.B, [+hkl[0], +hkl[1], +hkl[2]]));
-    return { q: r4(q), d: q > 1e-9 ? r4(TWO_PI / q) : null };
+    var Q = matVec(spec.B, [+hkl[0], +hkl[1], +hkl[2]]);
+    var q = norm(Q);
+    return { q: r4(q), d: q > 1e-9 ? r4(TWO_PI / q) : null,
+             qx: r4(dot(Q, spec.e1)), qy: r4(dot(Q, spec.e2)) };
   }
 
   function build(cfg) {
@@ -209,7 +221,7 @@
       var p = sp[i], r = checkPoint(bl.spec, bl.limits, [p[0], p[1], p[2]], p[3]);
       var qq = qd(bl.spec, [p[0], p[1], p[2]]);
       r.h = r4(p[0]); r.k = r4(p[1]); r.l = r4(p[2]); r.E = r4(p[3]);
-      r.q = qq.q; r.d = qq.d;
+      r.q = qq.q; r.d = qq.d; r.qx = qq.qx; r.qy = qq.qy;
       if (r.reachable) n_ok++;
       pts.push(r);
     }
@@ -231,6 +243,33 @@
     for (var ii = 0; ii < n; ii++) hs.push(r4(hmin + (hmax - hmin) * ii / (n - 1)));
     for (var jj = 0; jj < n; jj++) ks.push(r4(kmin + (kmax - kmin) * jj / (n - 1)));
     return { h: hs, k: ks, z: cells };
+  }
+
+  // Reachable-region map meshed directly in the in-plane Cartesian (Qx,Qy) [Å⁻¹].
+  // Each grid Q is mapped back to (h,k,l) via B⁻¹ and checked. The mesh spans the
+  // full reachable disk (|Q| up to ki+kf) unless qmax is given.
+  function gridQ(cfg, e, n, qmax) {
+    var bl = build(cfg), Binv = inv3(bl.spec.B);
+    var e1 = bl.spec.e1, e2 = bl.spec.e2;
+    if (!(qmax > 0)) {
+      try { var kk = kiKf(bl.spec, e); qmax = (kk[0] + kk[1]) * 1.06; }
+      catch (ex) { qmax = 2.0 * bl.spec.kfix * 1.06; }
+    }
+    n = Math.max(2, n | 0);
+    var cells = [], qxs = [], qys = [];
+    for (var i = 0; i < n; i++) {
+      var qx = -qmax + 2 * qmax * i / (n - 1), row = [];
+      for (var j = 0; j < n; j++) {
+        var qy = -qmax + 2 * qmax * j / (n - 1);
+        var Qc = [qx * e1[0] + qy * e2[0], qx * e1[1] + qy * e2[1], qx * e1[2] + qy * e2[2]];
+        var hkl = matVec(Binv, Qc);
+        row.push(checkPoint(bl.spec, bl.limits, hkl, e).reachable ? 1 : 0);
+      }
+      cells.push(row);
+    }
+    for (var ii = 0; ii < n; ii++) qxs.push(r4(-qmax + 2 * qmax * ii / (n - 1)));
+    for (var jj = 0; jj < n; jj++) qys.push(r4(-qmax + 2 * qmax * jj / (n - 1)));
+    return { qx: qxs, qy: qys, z: cells };
   }
 
   // --- .scn text generation ----------------------------------------------
@@ -314,7 +353,7 @@
         var p = sp[s], r = checkPoint(bl.spec, bl.limits, [p[0], p[1], p[2]], p[3]);
         var qq = qd(bl.spec, [p[0], p[1], p[2]]);
         r.h = r4(p[0]); r.k = r4(p[1]); r.l = r4(p[2]); r.E = r4(p[3]); r.line = li;
-        r.q = qq.q; r.d = qq.d;
+        r.q = qq.q; r.d = qq.d; r.qx = qq.qx; r.qy = qq.qy;
         if (r.reachable) ok++;
         pts.push(r);
       }
@@ -329,8 +368,11 @@
         var ap = scanPoints(all[a]);
         for (var q = 0; q < ap.length; q++) {
           var pp = ap[q];
-          if (!checkPoint(bl.spec, bl.limits, [pp[0], pp[1], pp[2]], pp[3]).reachable)
-            dropped.push({ h: r4(pp[0]), k: r4(pp[1]), l: r4(pp[2]), E: r4(pp[3]) });
+          if (!checkPoint(bl.spec, bl.limits, [pp[0], pp[1], pp[2]], pp[3]).reachable) {
+            var dq = qd(bl.spec, [pp[0], pp[1], pp[2]]);
+            dropped.push({ h: r4(pp[0]), k: r4(pp[1]), l: r4(pp[2]), E: r4(pp[3]),
+                           qx: dq.qx, qy: dq.qy });
+          }
         }
       }
       res.dropped = dropped;
@@ -365,7 +407,7 @@
     Unreachable: Unreachable,
     build: build, anglesRaw: function (cfg, hkl, e) { return angles(buildSpec(cfg), hkl, e); },
     check_point: function (cfg, hkl, e) { var b = build(cfg); return checkPoint(b.spec, b.limits, hkl, e); },
-    evaluate: evaluate, grid: grid, to_scn: to_scn,
+    evaluate: evaluate, grid: grid, gridQ: gridQ, to_scn: to_scn,
     evaluate_map: evaluate_map, map_to_scn: map_to_scn
   };
 
