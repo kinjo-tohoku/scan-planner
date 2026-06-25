@@ -183,6 +183,16 @@
     return { spec: spec, limits: lim };
   }
 
+  // Limit test. C-axes are full rotations: an angle and its ±360 equivalents are
+  // the same orientation, so accept if any equivalent falls within [lo,hi] (a 360°
+  // limit then reaches every azimuth). A-axes (scattering 2θ) use the plain test.
+  function within(ax, v, lo, hi) {
+    if (ax.charAt(0) === "C")
+      return (lo <= v && v <= hi) || (lo <= v - 360 && v - 360 <= hi)
+          || (lo <= v + 360 && v + 360 <= hi);
+    return lo <= v && v <= hi;
+  }
+
   function checkPoint(spec, limits, hkl, e) {
     var ang;
     try { ang = angles(spec, hkl, e); }
@@ -195,7 +205,7 @@
     for (var ax in limits) if (Object.prototype.hasOwnProperty.call(limits, ax)) {
       if (vals[ax] !== undefined) {
         var lo = limits[ax][0], hi = limits[ax][1], v = vals[ax];
-        if (!(lo <= v && v <= hi))
+        if (!within(ax, v, lo, hi))
           return {
             reachable: false,
             reason: ax + "=" + v.toFixed(2) + "° outside [" + lo + "," + hi + "]",
