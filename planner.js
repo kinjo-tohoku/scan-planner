@@ -25,7 +25,7 @@
     fixed: "kf", kfix: 2.662,
     sense_m: 1, sense_s: 1, sense_a: 1,
     plane_u: [1.0, 0.0, 0.0], plane_v: [0.0, 1.0, 0.0],
-    centering: "P",
+    centering: "P", km: [0.0, 0.0, 0.0],
     limits: DEFAULT_LIMITS
   };
 
@@ -317,6 +317,82 @@
     return out;
   }
 
+  // Magnetic satellites at G ± k_m around centering-allowed nuclear positions G.
+  // Empty when k_m = 0. s = +1/-1 marks the satellite sign.
+  function satellites(cfg, qmax) {
+    var km = cfg.km || [0, 0, 0];
+    if (!(Math.abs(km[0]) > 1e-9 || Math.abs(km[1]) > 1e-9 || Math.abs(km[2]) > 1e-9)) return [];
+    var bl = build(cfg), spec = bl.spec, cen = (cfg.centering || "P").toUpperCase();
+    if (!(qmax > 0)) qmax = 6.0;
+    var col = function (j) { return [spec.B[0][j], spec.B[1][j], spec.B[2][j]]; };
+    var minr = Math.min(norm(col(0)), norm(col(1)), norm(col(2)));
+    var pad = norm(matVec(spec.B, [+km[0], +km[1], +km[2]]));
+    var hmax = Math.min(25, Math.ceil((qmax + pad) / Math.max(minr, 1e-6)) + 1);
+    var out = [], tol = 1e-4;
+    for (var h = -hmax; h <= hmax; h++)
+      for (var k = -hmax; k <= hmax; k++)
+        for (var l = -hmax; l <= hmax; l++) {
+          if (!allowedCentering(cen, h, k, l)) continue;
+          for (var s = -1; s <= 1; s += 2) {
+            var Q = matVec(spec.B, [h + s * km[0], k + s * km[1], l + s * km[2]]);
+            var Qmag = norm(Q);
+            if (Qmag < 1e-6 || Qmag > qmax) continue;
+            if (Math.abs(dot(Q, spec.n)) > tol * Math.max(1, Qmag)) continue;
+            out.push({ h: h, k: k, l: l, s: s, qx: r4(dot(Q, spec.e1)), qy: r4(dot(Q, spec.e2)) });
+          }
+        }
+    return out;
+  }
+
+  function clipHalfplane(poly, g) {           // keep x with x·g ≤ |g|²/2
+    var c = (g[0] * g[0] + g[1] * g[1]) / 2, out = [];
+    for (var i = 0; i < poly.length; i++) {
+      var A = poly[i], Bp = poly[(i + 1) % poly.length];
+      var da = A[0] * g[0] + A[1] * g[1] - c, db = Bp[0] * g[0] + Bp[1] * g[1] - c;
+      if (da <= 1e-12) out.push(A);
+      if ((da < 0 && db > 0) || (da > 0 && db < 0)) {
+        var t = da / (da - db);
+        out.push([A[0] + t * (Bp[0] - A[0]), A[1] + t * (Bp[1] - A[1])]);
+      }
+    }
+    return out;
+  }
+  // 1st Brillouin zone (Wigner–Seitz cell of the in-plane reciprocal lattice) as a
+  // polygon of (qx,qy) vertices. Uses the centering-allowed (primitive) lattice.
+  function brillouinZone(cfg) {
+    var bl = build(cfg), spec = bl.spec, cen = (cfg.centering || "P").toUpperCase();
+    var vs = [];
+    for (var h = -3; h <= 3; h++)
+      for (var k = -3; k <= 3; k++)
+        for (var l = -3; l <= 3; l++) {
+          if (!h && !k && !l) continue;
+          if (!allowedCentering(cen, h, k, l)) continue;
+          var Q = matVec(spec.B, [h, k, l]);
+          if (Math.abs(dot(Q, spec.n)) > 1e-4 * Math.max(1, norm(Q))) continue;
+          vs.push([dot(Q, spec.e1), dot(Q, spec.e2)]);
+        }
+    if (!vs.length) return [];
+    vs.sort(function (a, b) { return (a[0] * a[0] + a[1] * a[1]) - (b[0] * b[0] + b[1] * b[1]); });
+    var g1 = vs[0], g2 = null;
+    for (var i = 1; i < vs.length; i++) {
+      if (Math.abs(g1[0] * vs[i][1] - g1[1] * vs[i][0]) > 1e-6) { g2 = vs[i]; break; }
+    }
+    if (!g2) return [];
+    var R = 3 * Math.sqrt(Math.max(g1[0] * g1[0] + g1[1] * g1[1], g2[0] * g2[0] + g2[1] * g2[1]));
+    var poly = [[-R, -R], [R, -R], [R, R], [-R, R]];
+    for (var m = -2; m <= 2; m++)
+      for (var n = -2; n <= 2; n++) {
+        if (!m && !n) continue;
+        poly = clipHalfplane(poly, [m * g1[0] + n * g2[0], m * g1[1] + n * g2[1]]);
+        if (!poly.length) return [];
+      }
+    poly = poly.filter(function (p, i) {        // drop consecutive duplicate vertices
+      var q = poly[(i + poly.length - 1) % poly.length];
+      return Math.abs(p[0] - q[0]) > 1e-6 || Math.abs(p[1] - q[1]) > 1e-6;
+    });
+    return poly.map(function (p) { return [r4(p[0]), r4(p[1])]; });
+  }
+
   // --- .scn text generation ----------------------------------------------
   function gfmt(x) {                 // mimic Python's %g for scan coordinates
     x = +x;
@@ -452,7 +528,8 @@
     Unreachable: Unreachable,
     build: build, anglesRaw: function (cfg, hkl, e) { return angles(buildSpec(cfg), hkl, e); },
     check_point: function (cfg, hkl, e) { var b = build(cfg); return checkPoint(b.spec, b.limits, hkl, e); },
-    evaluate: evaluate, grid: grid, gridQ: gridQ, reflections: reflections, to_scn: to_scn,
+    evaluate: evaluate, grid: grid, gridQ: gridQ, reflections: reflections,
+    satellites: satellites, brillouinZone: brillouinZone, to_scn: to_scn,
     evaluate_map: evaluate_map, map_to_scn: map_to_scn
   };
 

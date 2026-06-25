@@ -166,6 +166,13 @@
           </select></label>
         <span class="hint" style="margin:0">absences for the reflection markers</span>
       </div>
+      <div class="row" style="margin-top:6px;align-items:center">
+        <span class="hint" style="margin:0" title="Magnetic propagation vector (r.l.u.). Non-zero adds satellites at G ± k_m.">k_m</span>
+        <input id="kmh" value="0" style="width:52px" oninput="scheduleEval()">
+        <input id="kmk" value="0" style="width:52px" oninput="scheduleEval()">
+        <input id="kml" value="0" style="width:52px" oninput="scheduleEval()">
+        <span class="hint" style="margin:0">&rarr; magnetic satellites G&plusmn;k_m</span>
+      </div>
       <div class="hint" style="margin-top:6px">Scattering plane = two orienting reflections u, v (default (1,0,0)-(0,1,0))</div>
       <div class="grid g3" style="margin-top:6px">
         <label>u_h<input id="uh" value="1"></label>
@@ -288,6 +295,8 @@ const $ = id => document.getElementById(id);
 const num = id => parseFloat($(id).value);
 let lastGrid = null;
 let lastRefl = null;   // in-plane Bragg reflections (Qx,Qy markers)
+let lastSat = null;    // magnetic satellites G±k_m
+let lastBZ = null;     // 1st Brillouin zone polygon
 
 function toggleHelp(open){ $('help').classList.toggle('open', open); }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') toggleHelp(false); });
@@ -309,7 +318,7 @@ function getConfig() {
     fixed:$('fixed').value, kfix:num('kfix'),
     sense_m:1, sense_s:1, sense_a:1,                   // GPTAS hardware: all +1 fixed
     plane_u:[num('uh'),num('uk'),num('ul')], plane_v:[num('vh'),num('vk'),num('vl')],
-    centering:$('centering').value,
+    centering:$('centering').value, km:[num('kmh'),num('kmk'),num('kml')],
     limits:{ C2:[num('C2lo'),num('C2hi')], A2:[num('A2lo'),num('A2hi')] }
   };
 }
@@ -410,8 +419,8 @@ async function api(path, body){
     return P.gridQ(body.config, g.e??0, clampi(g.n??51, 2, MAX_GRID_N), g.qmax??0);
   }
   if(ep==='reflections'){
-    const r = body.refl||{};
-    return { items: P.reflections(body.config, r.qmax??6) };
+    const r = body.refl||{}, cfg=body.config, qmax=r.qmax??6;
+    return { nuclear:P.reflections(cfg, qmax), satellites:P.satellites(cfg, qmax), bz:P.brillouinZone(cfg) };
   }
   if(ep==='export'){
     body.scan.npts = clampi(body.scan.npts||1, 1, MAX_NPTS);
@@ -509,12 +518,26 @@ function hkAxes(xs, ys, xt, yt){
   };
 }
 
-// Nuclear Bragg reflections as open markers on the (Qx,Qy) plane (hover = h,k,l).
+// Overlays on the (Qx,Qy) plane: 1st Brillouin zone, nuclear Bragg reflections,
+// and magnetic satellites G±k_m.
 function reflTrace(traces){
-  if(!lastRefl || !lastRefl.length) return;
-  traces.push({x:lastRefl.map(r=>r.qx), y:lastRefl.map(r=>r.qy), mode:'markers',
-    name:'Bragg (h k l)', text:lastRefl.map(r=>`(${r.h} ${r.k} ${r.l})`), hoverinfo:'text',
-    marker:{color:'rgba(185,205,255,0.6)', size:7, symbol:'circle-open', line:{width:1.2}}});
+  if(lastBZ && lastBZ.length>2){
+    const bx=lastBZ.map(p=>p[0]).concat([lastBZ[0][0]]);
+    const by=lastBZ.map(p=>p[1]).concat([lastBZ[0][1]]);
+    traces.push({x:bx, y:by, mode:'lines', name:'1st BZ', hoverinfo:'skip',
+      line:{color:'rgba(255,210,120,0.75)', width:1.5, dash:'dot'}});
+  }
+  if(lastRefl && lastRefl.length){
+    traces.push({x:lastRefl.map(r=>r.qx), y:lastRefl.map(r=>r.qy), mode:'markers',
+      name:'Bragg (h k l)', text:lastRefl.map(r=>`(${r.h} ${r.k} ${r.l})`), hoverinfo:'text',
+      marker:{color:'rgba(185,205,255,0.6)', size:7, symbol:'circle-open', line:{width:1.2}}});
+  }
+  if(lastSat && lastSat.length){
+    traces.push({x:lastSat.map(r=>r.qx), y:lastSat.map(r=>r.qy), mode:'markers',
+      name:'mag &plusmn;k_m'.replace('&plusmn;','±'),
+      text:lastSat.map(r=>`(${r.h} ${r.k} ${r.l}) ${r.s>0?'+':'−'}k_m`), hoverinfo:'text',
+      marker:{color:'rgba(255,140,190,0.75)', size:5, symbol:'diamond'}});
+  }
 }
 function plot(pts){
   const span=c=>{const v=pts.map(p=>p[c]); return Math.max(...v)-Math.min(...v);};
@@ -626,7 +649,8 @@ async function runEvaluate(){
     const cfg = getConfig();
     lastGrid = await api('/api/gridq',{config:cfg, grid:{e, n:51}});
     const qmax = lastGrid.qx[lastGrid.qx.length-1];
-    lastRefl = (await api('/api/reflections',{config:cfg, refl:{qmax}})).items;
+    const refl = await api('/api/reflections',{config:cfg, refl:{qmax}});
+    lastRefl = refl.nuclear; lastSat = refl.satellites; lastBZ = refl.bz;
     await evalScan();
   }catch(e){ showErr(e.message); }
 }
