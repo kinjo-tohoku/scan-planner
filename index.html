@@ -156,7 +156,17 @@
         <label>&beta; [&deg;]<input id="beta" value="90"></label>
         <label>&gamma; [&deg;]<input id="gamma" value="90"></label>
       </div>
-      <div class="hint">Scattering plane = two orienting reflections u, v (default (1,0,0)-(0,1,0))</div>
+      <div class="row" style="margin-top:6px;align-items:center">
+        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)"
+               title="Lattice centering for Bragg-reflection extinctions. P = show all reflections.">centering
+          <select id="centering" style="width:auto">
+            <option value="P">P (all)</option><option value="I">I</option>
+            <option value="F">F</option><option value="A">A</option>
+            <option value="B">B</option><option value="C">C</option><option value="R">R</option>
+          </select></label>
+        <span class="hint" style="margin:0">absences for the reflection markers</span>
+      </div>
+      <div class="hint" style="margin-top:6px">Scattering plane = two orienting reflections u, v (default (1,0,0)-(0,1,0))</div>
       <div class="grid g3" style="margin-top:6px">
         <label>u_h<input id="uh" value="1"></label>
         <label>u_k<input id="uk" value="0"></label>
@@ -299,6 +309,7 @@ function getConfig() {
     fixed:$('fixed').value, kfix:num('kfix'),
     sense_m:1, sense_s:1, sense_a:1,                   // GPTAS hardware: all +1 fixed
     plane_u:[num('uh'),num('uk'),num('ul')], plane_v:[num('vh'),num('vk'),num('vl')],
+    centering:$('centering').value,
     limits:{ C2:[num('C2lo'),num('C2hi')], A2:[num('A2lo'),num('A2hi')] }
   };
 }
@@ -661,9 +672,13 @@ function parseCif(text){
     const m=text.match(new RegExp('^[ \\t]*'+key+'[ \\t]+([-+0-9.eE]+)','m'));
     return m ? parseFloat(m[1]) : null;
   };
+  // lattice centering = first letter of the H-M space-group symbol, if present.
+  const sg=text.match(/_(?:symmetry_space_group_name_h-m|space_group_name_h-m_alt)[ \t]+['"]?\s*([A-Za-z])/i);
+  let cen = sg ? sg[1].toUpperCase() : null;
+  if(cen && !'PIFABCR'.includes(cen)) cen='P';   // e.g. 'H' or unknown → treat as P
   return { a:num('_cell_length_a'), b:num('_cell_length_b'), c:num('_cell_length_c'),
            alpha:num('_cell_angle_alpha'), beta:num('_cell_angle_beta'),
-           gamma:num('_cell_angle_gamma') };
+           gamma:num('_cell_angle_gamma'), centering:cen };
 }
 function applyCif(text){
   const cell=parseCif(text);
@@ -672,6 +687,7 @@ function applyCif(text){
   if(cell.alpha>0) $('alpha').value=cell.alpha;
   if(cell.beta>0)  $('beta').value=cell.beta;
   if(cell.gamma>0) $('gamma').value=cell.gamma;
+  $('centering').value = cell.centering || 'P';   // from space group, else show all
   showErr('');
   runEvaluate();
 }

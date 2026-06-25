@@ -25,6 +25,7 @@
     fixed: "kf", kfix: 2.662,
     sense_m: 1, sense_s: 1, sense_a: 1,
     plane_u: [1.0, 0.0, 0.0], plane_v: [0.0, 1.0, 0.0],
+    centering: "P",
     limits: DEFAULT_LIMITS
   };
 
@@ -282,10 +283,22 @@
     return { qx: qxs, qy: qys, z: cells };
   }
 
+  // Lattice-centering reflection condition (which reflections are present).
+  function allowedCentering(cen, h, k, l) {
+    switch (cen) {
+      case "I": return (h + k + l) % 2 === 0;
+      case "F": return (h + k) % 2 === 0 && (k + l) % 2 === 0;  // all same parity
+      case "C": return (h + k) % 2 === 0;
+      case "A": return (k + l) % 2 === 0;
+      case "B": return (h + l) % 2 === 0;
+      case "R": return ((((-h + k + l) % 3) + 3) % 3) === 0;    // obverse on hex axes
+      default:  return true;                                    // P (all)
+    }
+  }
   // In-plane integer (h,k,l) Bragg reflections with |Q| ≤ qmax, as (Qx,Qy) markers.
-  // No space-group absences (P1: every integer reflection).
+  // Lattice-centering absences applied (cfg.centering, default P); no glide/screw rules.
   function reflections(cfg, qmax) {
-    var bl = build(cfg), spec = bl.spec;
+    var bl = build(cfg), spec = bl.spec, cen = (cfg.centering || "P").toUpperCase();
     if (!(qmax > 0)) qmax = 6.0;
     var col = function (j) { return [spec.B[0][j], spec.B[1][j], spec.B[2][j]]; };
     var minr = Math.min(norm(col(0)), norm(col(1)), norm(col(2)));
@@ -295,6 +308,7 @@
       for (var k = -hmax; k <= hmax; k++)
         for (var l = -hmax; l <= hmax; l++) {
           if (!h && !k && !l) continue;
+          if (!allowedCentering(cen, h, k, l)) continue;
           var Q = matVec(spec.B, [h, k, l]), Qmag = norm(Q);
           if (Qmag > qmax) continue;
           if (Math.abs(dot(Q, spec.n)) > tol * Math.max(1, Qmag)) continue;
