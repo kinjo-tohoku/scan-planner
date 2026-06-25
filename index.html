@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>filman scan planner</title>
+<script src="plotly.min.js"></script>
+<script src="planner.js"></script>
+<style>
+  :root { --bg:#0f1419; --panel:#1a2129; --ink:#e6edf3; --mut:#8b98a5;
+          --grn:#2ea043; --red:#f85149; --acc:#388bfd; --line:#30363d; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:13px/1.5 system-ui,Segoe UI,sans-serif;
+         background:var(--bg); color:var(--ink); }
+  header { padding:10px 16px; border-bottom:1px solid var(--line);
+           display:flex; align-items:baseline; gap:14px; }
+  header h1 { font-size:16px; margin:0; }
+  header .sub { color:var(--mut); font-size:12px; }
+  .wrap { display:flex; gap:14px; padding:14px; align-items:flex-start; }
+  .left { width:380px; flex:0 0 380px; }
+  .right { flex:1 1 auto; min-width:0; }
+  .card { background:var(--panel); border:1px solid var(--line);
+          border-radius:8px; padding:12px; margin-bottom:12px; }
+  .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+             color:var(--mut); margin:0 0 8px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(70px,1fr));
+          gap:6px 8px; }
+  .grid.g2 { grid-template-columns:repeat(2,1fr); }
+  .grid.g3 { grid-template-columns:repeat(3,1fr); }
+  .grid.g4 { grid-template-columns:repeat(4,1fr); }
+  label { display:flex; flex-direction:column; font-size:11px; color:var(--mut); gap:2px; }
+  input, select { background:#0d1117; color:var(--ink); border:1px solid var(--line);
+          border-radius:5px; padding:4px 6px; font:12px monospace; width:100%; }
+  input:disabled, select:disabled { cursor:not-allowed; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; }
+  button { background:var(--acc); color:#fff; border:0; border-radius:6px;
+           padding:7px 12px; font-size:13px; cursor:pointer; }
+  button.sec { background:#21262d; color:var(--ink); border:1px solid var(--line); }
+  button:hover { filter:brightness(1.1); }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; }
+  .summary { font-size:14px; margin:0 0 8px; }
+  .ok { color:var(--grn); } .bad { color:var(--red); }
+  table { width:100%; border-collapse:collapse; font:11px monospace; }
+  th,td { text-align:right; padding:2px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mut); font-weight:600; }
+  td.l { text-align:left; }
+  .tablewrap { max-height:240px; overflow:auto; }
+  textarea { width:100%; height:200px; background:#0d1117; color:var(--ink);
+             border:1px solid var(--line); border-radius:6px; font:12px monospace; padding:8px; }
+  .err { color:var(--red); white-space:pre-wrap; font:11px monospace; }
+  #plot { height:460px; }
+  .preset { font-size:11px; padding:4px 8px; }
+  .hint { color:var(--mut); font-size:11px; margin-top:6px; }
+  .help-btn { margin-left:auto; width:26px; height:26px; padding:0; border-radius:50%;
+              background:#21262d; color:var(--ink); border:1px solid var(--line);
+              font-size:14px; font-weight:700; cursor:pointer; line-height:1; }
+  .help-btn:hover { background:var(--acc); }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none;
+           z-index:50; padding:32px; overflow:auto; }
+  .modal.open { display:block; }
+  .modal-inner { max-width:760px; margin:0 auto; background:var(--panel);
+                 border:1px solid var(--line); border-radius:10px; padding:0; }
+  .modal-head { display:flex; align-items:center; gap:12px; padding:14px 18px;
+                border-bottom:1px solid var(--line); position:sticky; top:0;
+                background:var(--panel); border-radius:10px 10px 0 0; }
+  .modal-head h2 { margin:0; font-size:15px; }
+  .modal-body { padding:6px 18px 18px; }
+  .modal-body h3 { font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+                   color:var(--acc); margin:18px 0 6px; }
+  .modal-body p, .modal-body li { font-size:12.5px; color:var(--ink); line-height:1.6; }
+  .modal-body ul { margin:4px 0; padding-left:18px; }
+  .modal-body code { background:#0d1117; border:1px solid var(--line); border-radius:4px;
+                     padding:1px 5px; font:11.5px monospace; color:#e6edf3; }
+  .modal-body .k { color:var(--mut); }
+  .modal-close { margin-left:auto; }
+  abbr { text-decoration:underline dotted var(--mut); cursor:help; }
+</style>
+</head>
+<body>
+<header>
+  <h1>filman scan planner</h1>
+  <span class="sub">Plan in (Q,E) &rarr; check reachability &rarr; generate filman .scn &nbsp;/&nbsp; no resolution &middot; manual input</span>
+  <button class="help-btn" onclick="toggleHelp(true)" title="Help">?</button>
+</header>
+
+<div class="modal" id="help" onclick="if(event.target===this)toggleHelp(false)">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <h2>Help &mdash; filman scan planner</h2>
+      <button class="sec modal-close" onclick="toggleHelp(false)">Close &times;</button>
+    </div>
+    <div class="modal-body">
+      <p>Plan a triple-axis scan in <b>(Q, E)</b>, check whether every point is
+         <b>reachable</b> within the motor soft-limits, and export a filman
+         <code>.scn</code> script. No resolution calculation; configuration is entered by hand.</p>
+
+      <h3>Workflow</h3>
+      <ul>
+        <li><b>1. Sample</b> &mdash; real-space lattice <span class="k">a,b,c,&alpha;,&beta;,&gamma;</span>
+            and the two orienting reflections <span class="k">u, v</span> that define the scattering plane.</li>
+        <li><b>2. Spectrometer</b> &mdash; fixed <span class="k">ki/kf</span> + value, and the analyzer (PG002/PG004). GPTAS defaults are filled in.</li>
+        <li><b>3. Soft limits</b> &mdash; sample motors <span class="k">C2 (&omega;)</span> and <span class="k">A2 (2&theta;)</span>. With kf fixed these are what actually bound a scan.</li>
+        <li><b>4. Scan definition</b> &mdash; single line or map (below).</li>
+        <li><b>5. Evaluate</b> &rarr; green = reachable, red &times; = not. <b>Show reachable region</b> overlays the accessible area; <b>Generate .scn</b> writes the filman script.</li>
+      </ul>
+
+      <h3>Start / End / &Delta; &mdash; NP is computed</h3>
+      <p>You enter <b>start</b>, <b>end</b>, and <b>step &Delta;</b> per axis. The number of points is
+         derived: <code>NP = floor((end &minus; start) / &Delta;) + 1</code> on the swept axis (any axis with &Delta;&ne;0).
+         Axes with &Delta;=0 stay fixed at their start value, so their end field is ignored.
+         The computed <b>NP</b> is shown live under the grid.</p>
+
+      <h3>Map types</h3>
+      <ul>
+        <li><b>Plane h&times;k (const E)</b> &mdash; inner axis sweeps <b>h</b> (start&rarr;end by &Delta;h),
+            outer axis shifts <b>k</b> (start&rarr;<i>k end</i> by <i>&Delta;k (outer)</i>). Number of lines is computed.</li>
+        <li><b>Dispersion Q&times;E</b> &mdash; inner axis sweeps <b>E</b> at constant Q, outer axis shifts <b>h</b>.</li>
+      </ul>
+      <p>Each line becomes one <code>NS=</code> scan; the map runs as a combined <code>GO 1-N</code>.</p>
+
+      <h3>Auto-fit to reachable region</h3>
+      <p>When ON, points outside the reachable region are <b>dropped</b> and each line is trimmed
+         to its reachable run (split if a gap is in the middle). The summary then reads
+         e.g. <code>reachable 62/62 &middot; 43 dropped</code> &mdash; the dropped count tells you points were
+         removed, and they appear as faint red &times; on the plot. When OFF you get the full rectangle.</p>
+
+      <h3>Long maps &mdash; GO blocks of 40</h3>
+      <p>filman holds at most <b>40</b> scan slots per <code>GO</code>. If a map has more lines, the
+         <code>.scn</code> is split into blocks &mdash; each block re-numbers <code>NS=1..40</code> and ends with its own
+         <code>GO 1-40</code> &mdash; so the whole map still runs from one file.</p>
+
+      <h3>Generated .scn</h3>
+      <p>Lattice / spectrometer / RS are assumed set &amp; tuned beforehand and are <b>not</b> written.
+         Only scan definitions (<code>NS/HS/KS/ES/DE/DH/DK/NP/MN[/NT]</code>, comma-separated) and <code>GO</code> are emitted.
+         filman is in-plane (h,k), so the scan <code>l</code> is ignored (out-of-plane = unreachable).</p>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="left">
+    <div class="card">
+      <h2>Sample (real-space lattice)</h2>
+      <div class="grid g3">
+        <label>a [&Aring;]<input id="a" value="4.0"></label>
+        <label>b [&Aring;]<input id="b" value="4.0"></label>
+        <label>c [&Aring;]<input id="c" value="4.0"></label>
+        <label>&alpha; [&deg;]<input id="alpha" value="90"></label>
+        <label>&beta; [&deg;]<input id="beta" value="90"></label>
+        <label>&gamma; [&deg;]<input id="gamma" value="90"></label>
+      </div>
+      <div class="hint">Scattering plane = two orienting reflections u, v (default (1,0,0)-(0,1,0))</div>
+      <div class="grid g3" style="margin-top:6px">
+        <label>u_h<input id="uh" value="1"></label>
+        <label>u_k<input id="uk" value="0"></label>
+        <label>u_l<input id="ul" value="0"></label>
+        <label>v_h<input id="vh" value="0"></label>
+        <label>v_k<input id="vk" value="1"></label>
+        <label>v_l<input id="vl" value="0"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Spectrometer (GPTAS)</h2>
+      <div class="grid">
+        <label title="Which of ki/kf is held constant during the scan">fixed<select id="fixed"><option value="kf" selected>kf</option><option value="ki">ki</option></select></label>
+        <label title="Value of the fixed wavevector (Å⁻¹). GPTAS default kf = 2.662">k fixed [&Aring;&#8315;&sup1;]<input id="kfix" value="2.662"></label>
+        <label title="Analyzer crystal: PG002 (d=3.355 Å) or PG004 (d=1.6775 Å)">analyzer<select id="ana"><option value="3.355" selected>PG002</option><option value="1.6775">PG004</option></select></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 title="Only the sample motors are limit-checked; C1/A1 (mono) and C3/A3 (ana) are fixed by kf">Sample motor soft limits [&deg;]</h2>
+      <div class="grid">
+        <label title="Sample rotation ω lower limit [°]">C2 (&omega;) lo<input id="C2lo" value="-180"></label><label title="Sample rotation ω upper limit [°]">C2 (&omega;) hi<input id="C2hi" value="180"></label>
+        <label title="Sample scattering angle 2θ lower limit [°]">A2 (2&theta;) lo<input id="A2lo" value="5"></label><label title="Sample scattering angle 2θ upper limit [°]">A2 (2&theta;) hi<input id="A2hi" value="110"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Scan definition</h2>
+      <div class="row" style="margin-bottom:8px;align-items:center">
+        <span class="hint" style="margin:0">type</span>
+        <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)">
+          <input type="radio" name="mode" value="line" checked onchange="setMode()" style="width:auto"> Single line</label>
+        <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)">
+          <input type="radio" name="mode" value="map" onchange="setMode()" style="width:auto"> Map</label>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <button class="sec preset" onclick="preset('E')">Energy (fixed Q)</button>
+        <button class="sec preset" onclick="preset('h')">Q-scan (h)</button>
+        <button class="sec preset" onclick="preset('k')">Q-scan (k)</button>
+      </div>
+      <div class="grid g4">
+        <label>h start<input id="h0" value="1" oninput="onScanInput()"></label>
+        <label>k start<input id="k0" value="0" oninput="onScanInput()"></label>
+        <label>l start<input id="l0" value="0"></label>
+        <label>E start<input id="E0" value="0" oninput="onScanInput()"></label>
+        <label>h end<input id="h1" value="1" oninput="onScanInput()"></label>
+        <label>k end<input id="k1" value="0" oninput="onScanInput()"></label>
+        <label>l end<input id="l1" value="0"></label>
+        <label>E end<input id="E1" value="10" oninput="onScanInput()"></label>
+        <label>&Delta;h<input id="dh" value="0" oninput="onScanInput()"></label>
+        <label>&Delta;k<input id="dk" value="0" oninput="onScanInput()"></label>
+        <label>&Delta;l<input id="dl" value="0"></label>
+        <label>&Delta;E<input id="dE" value="1" oninput="onScanInput()"></label>
+      </div>
+      <div class="grid g2" style="margin-top:6px">
+        <label>monitor MN<input id="mon" value="10000"></label>
+        <label title="Adaptive counting (NT) — not implemented yet" style="opacity:.5">NT (not implemented)<input id="nt" value="0" disabled></label>
+      </div>
+      <div class="hint" style="margin-top:4px" title="NP = floor((end − start) / Δ) + 1 on the swept axis (axis with Δ≠0). Δ=0 axes stay fixed at start.">&rarr; NP = <b id="npshow">11</b> points (computed from start, end, &Delta; on the swept axis)</div>
+      <div id="mapfields" style="display:none">
+        <div class="row" style="margin-top:10px;align-items:center">
+          <span class="hint" style="margin:0">Map type</span>
+          <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)">
+            <input type="radio" name="maptype" value="hk" checked onchange="setMapType()" style="width:auto"> Plane h&times;k (const E)</label>
+          <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)">
+            <input type="radio" name="maptype" value="disp" onchange="setMapType()" style="width:auto"> Dispersion Q&times;E</label>
+        </div>
+        <div class="hint" id="maphint" style="margin-top:6px">Inner: sweep h by &Delta;h up to h end (const E). Outer: shift k from k start to k end by &Delta;k.</div>
+        <div class="grid g2" style="margin-top:4px">
+          <label><span id="oendlab">k end</span><input id="oend" value="1" oninput="onScanInput()"></label>
+          <label><span id="ostplab">&Delta;k (outer)</span><input id="ostep" value="0.1" oninput="onScanInput()"></label>
+        </div>
+        <div class="hint" style="margin-top:4px">&rarr; <b id="nlshow">11</b> lines (from start, end, &Delta;)</div>
+        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink);margin-top:6px">
+          <input type="checkbox" id="trim" checked style="width:auto"> Auto-fit to reachable region (drop out-of-region points, extend each line to the edge)
+        </label>
+      </div>
+    </div>
+
+    <div class="btns">
+      <button onclick="runEvaluate()">&#9654; Evaluate reachability</button>
+      <button class="sec" onclick="showRegion()">Show reachable region</button>
+      <button class="sec" onclick="exportScn()">Generate .scn</button>
+    </div>
+    <div id="err" class="err"></div>
+  </div>
+
+  <div class="right">
+    <div class="card">
+      <div id="summary" class="summary">&mdash; not evaluated yet &mdash;</div>
+      <div id="plot"></div>
+    </div>
+    <div class="card">
+      <h2>Per-point results</h2>
+      <div class="tablewrap"><table id="tbl"><thead><tr>
+        <th>#</th><th>h</th><th>k</th><th>l</th><th>E</th><th class="l">status</th>
+        <th>C1</th><th>A1</th><th>C2</th><th>A2</th><th>C3</th><th>A3</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>filman script (.scn)</h2>
+      <textarea id="scn" placeholder="Press Generate .scn to produce a filman script"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="sec" onclick="copyScn()">Copy</button>
+        <button class="sec" onclick="downloadScn()">Download</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const num = id => parseFloat($(id).value);
+let lastGrid = null;
+
+function toggleHelp(open){ $('help').classList.toggle('open', open); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') toggleHelp(false); });
+
+function getConfig() {
+  return {
+    a:num('a'), b:num('b'), c:num('c'),
+    alpha:num('alpha'), beta:num('beta'), gamma:num('gamma'),
+    d_mono:3.355, d_ana:parseFloat($('ana').value),   // mono = PG002 fixed
+    fixed:$('fixed').value, kfix:num('kfix'),
+    sense_m:1, sense_s:1, sense_a:1,                   // GPTAS hardware: all +1 fixed
+    plane_u:[num('uh'),num('uk'),num('ul')], plane_v:[num('vh'),num('vk'),num('vl')],
+    limits:{ C2:[num('C2lo'),num('C2hi')], A2:[num('A2lo'),num('A2hi')] }
+  };
+}
+// NP is computed from start/end/step on the swept axes (axes with |Δ|>0).
+// Δ=0 axes stay fixed at their start value, so their end field is ignored.
+function computeNP(){
+  const s=[num('h0'),num('k0'),num('l0'),num('E0')];
+  const e=[num('h1'),num('k1'),num('l1'),num('E1')];
+  const d=[num('dh'),num('dk'),num('dl'),num('dE')];
+  let np=1;
+  for(let i=0;i<4;i++){
+    if(isFinite(d[i]) && Math.abs(d[i])>1e-9){
+      const n=Math.floor((e[i]-s[i])/d[i] + 1e-6)+1;
+      if(n>np) np=n;
+    }
+  }
+  return np<1?1:np;
+}
+function getScan() {
+  return { start:[num('h0'),num('k0'),num('l0'),num('E0')],
+           step:[num('dh'),num('dk'),num('dl'),num('dE')],
+           npts:computeNP(),
+           monitor:Math.round(num('mon')), nt:Math.round(num('nt')) };
+}
+function preset(kind){
+  // Set Δ + matching end on the chosen sweep axis; freeze the others (end = start).
+  $('dh').value=0; $('dk').value=0; $('dl').value=0; $('dE').value=0;
+  $('h1').value=num('h0'); $('k1').value=num('k0'); $('l1').value=num('l0'); $('E1').value=num('E0');
+  if(kind==='E'){ $('dE').value=0.5; $('E1').value=(num('E0')+10).toFixed(3); }   // 21 pts
+  if(kind==='h'){ $('dh').value=0.05; $('h1').value=(num('h0')+1.0).toFixed(3); } // 21 pts
+  if(kind==='k'){ $('dk').value=0.05; $('k1').value=(num('k0')+1.0).toFixed(3); } // 21 pts
+  onScanInput();
+}
+function isMap(){ return document.querySelector('input[name=mode]:checked').value==='map'; }
+function setMode(){ const m=isMap(); $('mapfields').style.display=m?'block':'none'; if(m) setMapType(); }
+function mapType(){ return document.querySelector('input[name=maptype]:checked').value; }
+function outerAxisIdx(){ return mapType()==='hk' ? 1 : 0; }   // outer axis: hk→k(1), disp→h(0)
+function setMapType(){
+  // Map type picks the inner (swept) axis and the outer (shifted) axis.
+  // Inner uses start/end/Δ → NP; outer uses start/end/Δ → number of lines.
+  if(mapType()==='hk'){                 // inner: sweep h (const E), outer: k
+    $('dh').value=0.05; $('dk').value=0; $('dl').value=0; $('dE').value=0;
+    $('h1').value=(num('h0')+1.0).toFixed(3);
+    $('k1').value=num('k0'); $('l1').value=num('l0'); $('E1').value=num('E0');
+    $('oendlab').textContent='k end'; $('ostplab').textContent='Δk (outer)';
+    $('oend').value=1; $('ostep').value=0.1;
+    $('maphint').textContent='Inner: sweep h by Δh up to h end (const E). Outer: shift k from k start to k end by Δk.';
+  } else {                              // inner: sweep E (const Q), outer: h
+    $('dh').value=0; $('dk').value=0; $('dl').value=0; $('dE').value=0.5;
+    $('E1').value=(num('E0')+10).toFixed(3);
+    $('h1').value=num('h0'); $('k1').value=num('k0'); $('l1').value=num('l0');
+    $('oendlab').textContent='h end'; $('ostplab').textContent='Δh (outer)';
+    $('oend').value=(num('h0')+0.6).toFixed(2); $('ostep').value=0.1;
+    $('maphint').textContent='Inner: sweep E by ΔE up to E end (const Q). Outer: shift h from h start to h end by Δh.';
+  }
+  onScanInput();
+}
+function computeNlines(){
+  const oStart=[num('h0'),num('k0'),num('l0'),num('E0')][outerAxisIdx()];
+  const oEnd=num('oend'), oStep=num('ostep');
+  if(!isFinite(oStep) || Math.abs(oStep)<1e-9) return 1;
+  const n=Math.floor((oEnd-oStart)/oStep + 1e-6)+1;
+  return n<1?1:n;
+}
+function onScanInput(){
+  const np=$('npshow'); if(np) np.textContent=computeNP();
+  const nl=$('nlshow'); if(nl) nl.textContent=computeNlines();
+}
+function getMap(){
+  const outer=[0,0,0,0]; outer[outerAxisIdx()]=num('ostep');
+  return { start:[num('h0'),num('k0'),num('l0'),num('E0')],
+           step:[num('dh'),num('dk'),num('dl'),num('dE')],
+           outer, nlines:computeNlines(),
+           npts:computeNP(),
+           monitor:Math.round(num('mon')), nt:Math.round(num('nt')),
+           trim:$('trim').checked };
+}
+// Standalone build: no backend. The computation runs locally via planner.js
+// (Planner.*), returning the same JSON shapes the server endpoints used, so all
+// the rendering/plotting code below is unchanged. async kept for API parity.
+const MAX_NPTS=2001, MAX_NLINES=2000, MAX_GRID_N=301;   // guard the user's own tab
+const clampi=(v,lo,hi)=>Math.max(lo,Math.min(hi,Math.round(v)));
+async function api(path, body){
+  const P = window.Planner;
+  if(!P) throw new Error('planner.js failed to load');
+  const ep = path.replace(/^\//,'').replace(/^api\//,'');
+  if(ep==='evaluate'){
+    body.scan.npts = clampi(body.scan.npts||1, 1, MAX_NPTS);
+    return P.evaluate(body.config, body.scan);
+  }
+  if(ep==='grid'){
+    const g = body.grid||{};
+    return P.grid(body.config, g.e??0, g.hmin??-3, g.hmax??3, g.kmin??-3, g.kmax??3,
+                  clampi(g.n??41, 2, MAX_GRID_N), g.l??0);
+  }
+  if(ep==='export'){
+    body.scan.npts = clampi(body.scan.npts||1, 1, MAX_NPTS);
+    return { scn: P.to_scn(body.config, body.scan, body.scan_no||1) };
+  }
+  if(ep==='map'){
+    body.map.npts = clampi(body.map.npts||1, 1, MAX_NPTS);
+    body.map.nlines = clampi(body.map.nlines||1, 1, MAX_NLINES);
+    return P.evaluate_map(body.config, body.map, !!body.map.trim);
+  }
+  if(ep==='map_export'){
+    body.map.npts = clampi(body.map.npts||1, 1, MAX_NPTS);
+    body.map.nlines = clampi(body.map.nlines||1, 1, MAX_NLINES);
+    return { scn: P.map_to_scn(body.config, body.map, !!body.map.trim) };
+  }
+  throw new Error('unknown endpoint: '+ep);
+}
+function showErr(e){ $('err').textContent = e ? ('⚠ '+e) : ''; }
+
+async function runEvaluate(){
+  showErr('');
+  try{
+    if(isMap()){
+      const res = await api('/api/map',{config:getConfig(), map:getMap()});
+      renderSummary(res); renderMapTable(res.lines); plotMap(res.lines, res.dropped);
+    } else {
+      const res = await api('/api/evaluate',{config:getConfig(), scan:getScan()});
+      renderSummary(res); renderTable(res.points); plot(res.points);
+    }
+  }catch(e){ showErr(e.message); }
+}
+function renderSummary(res){
+  const bad = res.n_total - res.n_reachable;
+  const nd = res.dropped ? res.dropped.length : 0;   // auto-fit removed these before counting
+  const head = res.n_lines ? `${res.n_lines} lines &middot; ` : '';
+  // With auto-fit ON the dropped points are excluded from n_total, so n_reachable/n_total
+  // would otherwise read "all OK" even though out-of-region points exist on the plot.
+  let s = head
+    + `reachable <span class="ok">${res.n_reachable}</span> / ${res.n_total}`
+    + (bad ? ` &nbsp; unreachable <span class="bad">${bad}</span>`
+           : (nd ? ' &nbsp; ✓ measured points OK' : ' &nbsp; ✓ all points OK'));
+  if(nd) s += ` &nbsp; <span class="bad">⌫ ${nd} dropped (auto-fit · outside reachable region)</span>`;
+  if(res.n_lines > 40){ const nb=Math.ceil(res.n_lines/40);
+    s += ` &nbsp; <span style="color:var(--mut)">→ ${nb} GO blocks of ≤40 (NS restarts each block)</span>`; }
+  $('summary').innerHTML = s;
+}
+function renderMapTable(lines){
+  const tb = $('tbl').querySelector('tbody'); tb.innerHTML='';
+  lines.forEach((ln,li)=> ln.points.forEach((p,pi)=>{
+    const a = p.angles||{};
+    const st = p.reachable ? '<span class="ok">✓</span>'
+                           : '<span class="bad">✗ '+(p.reason||'')+'</span>';
+    const c = k => a[k]!==undefined ? a[k].toFixed(2) : '—';
+    tb.insertAdjacentHTML('beforeend',
+      `<tr><td>${li+1}.${pi+1}</td><td>${p.h}</td><td>${p.k}</td><td>${p.l}</td><td>${p.E}</td>`
+      +`<td class="l">${st}</td><td>${c('C1')}</td><td>${c('A1')}</td><td>${c('C2')}</td>`
+      +`<td>${c('A2')}</td><td>${c('C3')}</td><td>${c('A3')}</td></tr>`);
+  }));
+}
+function renderTable(pts){
+  const tb = $('tbl').querySelector('tbody'); tb.innerHTML='';
+  pts.forEach((p,i)=>{
+    const a = p.angles||{};
+    const st = p.reachable
+      ? '<span class="ok">✓</span>'
+      : '<span class="bad">✗ '+ (p.reason||'') +'</span>';
+    const c = k => a[k]!==undefined ? a[k].toFixed(2) : '—';
+    tb.insertAdjacentHTML('beforeend',
+      `<tr><td>${i+1}</td><td>${p.h}</td><td>${p.k}</td><td>${p.l}</td><td>${p.E}</td>`
+      +`<td class="l">${st}</td><td>${c('C1')}</td><td>${c('A1')}</td><td>${c('C2')}</td>`
+      +`<td>${c('A2')}</td><td>${c('C3')}</td><td>${c('A3')}</td></tr>`);
+  });
+}
+const PLOT_CFG={displayModeBar:false, responsive:true};
+const PLOT_BASE={margin:{l:50,r:10,t:10,b:40}, paper_bgcolor:'#1a2129',
+  plot_bgcolor:'#0d1117', font:{color:'#e6edf3'}, legend:{orientation:'h'}};
+const hover=(p,i,extra)=> `#${i+1} ${extra}<br>`
+  + (p.reachable ? Object.entries(p.angles).map(([k,v])=>k+'='+v.toFixed(1)).join(' ')
+                 : '✗ '+p.reason);
+
+function plot(pts){
+  const span=c=>{const v=pts.map(p=>p[c]); return Math.max(...v)-Math.min(...v);};
+  const vH=span('h')>1e-9, vK=span('k')>1e-9, vE=span('E')>1e-9;
+  if((vH||vK) && !vE) plotHK(pts);                       // Q-scan (const E) → (h,k) plane
+  else plot1D(pts, vE?'E':(vH?'h':(vK?'k':'E')));        // energy/mixed → x = swept amount
+}
+
+function plotHK(pts){
+  const traces=[];
+  if(lastGrid){
+    traces.push({type:'heatmap', x:lastGrid.h, y:lastGrid.k, z:lastGrid.z,
+      transpose:true, showscale:false, hoverinfo:'skip',
+      colorscale:[[0,'rgba(248,81,73,0.10)'],[0.5,'rgba(248,81,73,0.10)'],
+                  [0.5,'rgba(46,160,67,0.22)'],[1,'rgba(46,160,67,0.22)']], zmin:0, zmax:1});
+  }
+  const ok={x:[],y:[],t:[]}, bad={x:[],y:[],t:[]};
+  pts.forEach((p,i)=>{ const d=p.reachable?ok:bad;
+    d.x.push(p.h); d.y.push(p.k); d.t.push(hover(p,i,`(${p.h},${p.k},${p.l}) E=${p.E}`)); });
+  traces.push({x:pts.map(p=>p.h), y:pts.map(p=>p.k), mode:'lines',
+    line:{color:'rgba(139,152,165,0.5)',width:1}, hoverinfo:'skip', showlegend:false});
+  traces.push({x:ok.x,y:ok.y,mode:'markers',name:'reachable',text:ok.t,hoverinfo:'text',
+    marker:{color:'#2ea043',size:9,line:{color:'#fff',width:0.5}}});
+  traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
+    marker:{color:'#f85149',size:10,symbol:'x'}});
+  Plotly.newPlot('plot',traces,Object.assign({},PLOT_BASE,{
+    xaxis:{title:'h', gridcolor:'#30363d', zerolinecolor:'#444'},
+    yaxis:{title:'k', gridcolor:'#30363d', zerolinecolor:'#444', scaleanchor:'x', scaleratio:1}
+  }),PLOT_CFG);
+}
+
+function plot1D(pts, axis){
+  // x = swept amount, y = A2 (scattering angle). Green/red + A2 limit lines, so an
+  // energy scan does not collapse to a single column.
+  const ok={x:[],y:[],t:[]}, bad={x:[],y:[],t:[]};
+  pts.forEach((p,i)=>{ const d=p.reachable?ok:bad; const a=p.angles||{};
+    d.x.push(p[axis]); d.y.push(a.A2!==undefined?a.A2:null);
+    d.t.push(hover(p,i,`${axis}=${p[axis]} Q=(${p.h},${p.k},${p.l})`)); });
+  const traces=[
+    {x:pts.map(p=>p[axis]), y:pts.map(p=>p.angles&&p.angles.A2!==undefined?p.angles.A2:null),
+     mode:'lines', line:{color:'rgba(139,152,165,0.5)',width:1}, hoverinfo:'skip', showlegend:false},
+    {x:ok.x,y:ok.y,mode:'markers',name:'reachable',text:ok.t,hoverinfo:'text',
+     marker:{color:'#2ea043',size:9,line:{color:'#fff',width:0.5}}},
+    {x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
+     marker:{color:'#f85149',size:10,symbol:'x'}}
+  ];
+  const xs=pts.map(p=>p[axis]), xmin=Math.min(...xs), xmax=Math.max(...xs);
+  const lim=getConfig().limits.A2;
+  lim.forEach(L=> traces.push({x:[xmin,xmax],y:[L,L],mode:'lines',name:'A2 limit',
+    line:{color:'#f85149',width:1,dash:'dot'}, hoverinfo:'skip', showlegend:false}));
+  Plotly.newPlot('plot',traces,Object.assign({},PLOT_BASE,{
+    xaxis:{title:axis+(axis==='E'?' [meV]':''), gridcolor:'#30363d', zerolinecolor:'#444'},
+    yaxis:{title:'A2 scattering 2θ [°] (red dotted = limit)', gridcolor:'#30363d', zerolinecolor:'#444'}
+  }),PLOT_CFG);
+}
+
+function plotMap(lines, dropped){
+  // Scatter all points. If E is constant → (h,k) plane, else → (swept Q, E) plane.
+  const all=[]; lines.forEach(ln=>ln.points.forEach(p=>all.push(p)));
+  const span=c=>{const v=all.map(p=>p[c]); return Math.max(...v)-Math.min(...v);};
+  const vE=span('E')>1e-9, vH=span('h')>1e-9, vK=span('k')>1e-9;
+  let xk,yk,bg=false;
+  if(!vE){ xk='h'; yk='k'; bg=true; }                 // const-E (h,k) map
+  else { xk = vH?'h':(vK?'k':'h'); yk='E'; }          // dispersion (Q,E) map
+  const traces=[];
+  if(bg && lastGrid){
+    traces.push({type:'heatmap', x:lastGrid.h, y:lastGrid.k, z:lastGrid.z,
+      transpose:true, showscale:false, hoverinfo:'skip',
+      colorscale:[[0,'rgba(248,81,73,0.10)'],[0.5,'rgba(248,81,73,0.10)'],
+                  [0.5,'rgba(46,160,67,0.22)'],[1,'rgba(46,160,67,0.22)']], zmin:0, zmax:1});
+  }
+  lines.forEach(ln=> traces.push({x:ln.points.map(p=>p[xk]), y:ln.points.map(p=>p[yk]),
+    mode:'lines', line:{color:'rgba(139,152,165,0.4)',width:1}, hoverinfo:'skip', showlegend:false}));
+  if(dropped && dropped.length){    // points dropped by auto-fit (reference)
+    traces.push({x:dropped.map(p=>p[xk]), y:dropped.map(p=>p[yk]), mode:'markers',
+      name:'dropped', hoverinfo:'skip', marker:{color:'rgba(248,81,73,0.30)',size:6,symbol:'x'}});
+  }
+  const ok={x:[],y:[],t:[]}, bad={x:[],y:[],t:[]};
+  all.forEach((p,i)=>{ const d=p.reachable?ok:bad;
+    d.x.push(p[xk]); d.y.push(p[yk]);
+    d.t.push(hover(p,i,`L${(p.line||0)+1} (${p.h},${p.k},${p.l}) E=${p.E}`)); });
+  traces.push({x:ok.x,y:ok.y,mode:'markers',name:'reachable',text:ok.t,hoverinfo:'text',
+    marker:{color:'#2ea043',size:8,line:{color:'#fff',width:0.5}}});
+  traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
+    marker:{color:'#f85149',size:9,symbol:'x'}});
+  const lab=k=>k+(k==='E'?' [meV]':'');
+  const layout=Object.assign({},PLOT_BASE,{
+    xaxis:{title:lab(xk), gridcolor:'#30363d', zerolinecolor:'#444'},
+    yaxis:{title:lab(yk), gridcolor:'#30363d', zerolinecolor:'#444'}});
+  if(bg){ layout.yaxis.scaleanchor='x'; layout.yaxis.scaleratio=1; }
+  Plotly.newPlot('plot',traces,layout,PLOT_CFG);
+}
+async function showRegion(){
+  showErr('');
+  try{
+    let e,l0,hmin,hmax,kmin,kmax;
+    if(isMap()){
+      const m=getMap(); e=m.start[3]; l0=m.start[2];
+      const hs=[],ks=[];
+      for(let i=0;i<m.nlines;i++) for(let p=0;p<m.npts;p++){
+        hs.push(m.start[0]+i*m.outer[0]+p*m.step[0]);
+        ks.push(m.start[1]+i*m.outer[1]+p*m.step[1]);
+      }
+      hmin=Math.min(...hs)-1; hmax=Math.max(...hs)+1;
+      kmin=Math.min(...ks)-1; kmax=Math.max(...ks)+1;
+    } else {
+      const s=getScan(); e=s.start[3]; l0=s.start[2];
+      hmin=s.start[0]-3; hmax=s.start[0]+3; kmin=s.start[1]-3; kmax=s.start[1]+3;
+    }
+    const g = await api('/api/grid',{config:getConfig(),
+      grid:{e, hmin, hmax, kmin, kmax, n:51, l:l0}});
+    lastGrid = g;
+    // overlay the trajectory if already evaluated, otherwise just the region
+    await runEvaluate();
+  }catch(e){ showErr(e.message); }
+}
+async function exportScn(){
+  showErr('');
+  try{
+    const res = isMap()
+      ? await api('/api/map_export',{config:getConfig(), map:getMap()})
+      : await api('/api/export',{config:getConfig(), scan:getScan(), scan_no:1});
+    $('scn').value = res.scn;
+  }catch(e){ showErr(e.message); }
+}
+function copyScn(){ navigator.clipboard.writeText($('scn').value); }
+function downloadScn(){
+  const blob=new Blob([$('scn').value],{type:'text/plain'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='scan.scn'; a.click();
+}
+</script>
+</body>
+</html>
