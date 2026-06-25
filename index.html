@@ -269,6 +269,15 @@ let lastGrid = null;
 function toggleHelp(open){ $('help').classList.toggle('open', open); }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') toggleHelp(false); });
 
+// Keep Plotly's internal size in sync with the container. Without this, a layout
+// reflow (e.g. a scrollbar appearing after Evaluate shrinks the plot ~15px) leaves
+// Plotly with a stale width, so the drag-zoom rectangle is offset from the cursor.
+if(window.ResizeObserver){
+  const _plotEl = $('plot');
+  new ResizeObserver(()=>{ try{ if(_plotEl && _plotEl._fullLayout) Plotly.Plots.resize(_plotEl); }catch(e){} })
+    .observe(_plotEl);
+}
+
 function getConfig() {
   return {
     a:num('a'), b:num('b'), c:num('c'),
@@ -444,7 +453,8 @@ function renderTable(pts){
       +`<td>${c('A2')}</td><td>${c('C3')}</td><td>${c('A3')}</td></tr>`);
   });
 }
-const PLOT_CFG={displayModeBar:false, responsive:true};
+const PLOT_CFG={responsive:true, displayModeBar:true, displaylogo:false,
+  doubleClick:'reset+autosize', modeBarButtonsToRemove:['lasso2d','select2d']};
 const PLOT_BASE={margin:{l:50,r:10,t:10,b:40}, paper_bgcolor:'#1a2129',
   plot_bgcolor:'#0d1117', font:{color:'#e6edf3'}, legend:{orientation:'h'}};
 const hover=(p,i,extra)=> `#${i+1} ${extra}<br>`
