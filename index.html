@@ -74,9 +74,16 @@
   .modal-body .k { color:var(--mut); }
   .modal-close { margin-left:auto; }
   abbr { text-decoration:underline dotted var(--mut); cursor:help; }
+  .dropmask { position:fixed; inset:0; z-index:90; display:none;
+              align-items:center; justify-content:center;
+              background:rgba(56,139,253,0.12); border:3px dashed var(--acc); }
+  .dropmask.show { display:flex; }
+  .dropmask .box { font-size:18px; color:var(--ink); background:var(--panel);
+                   padding:18px 28px; border-radius:10px; border:1px solid var(--line); }
 </style>
 </head>
 <body>
+<div class="dropmask" id="dropmask"><div class="box">⬇ Drop a .cif file to load the lattice</div></div>
 <header>
   <h1>filman scan planner</h1>
   <span class="sub">Plan in (Q,E) &rarr; check reachability &rarr; generate filman .scn &nbsp;/&nbsp; no resolution &middot; manual input</span>
@@ -157,6 +164,12 @@
         <label>v_h<input id="vh" value="0"></label>
         <label>v_k<input id="vk" value="1"></label>
         <label>v_l<input id="vl" value="0"></label>
+      </div>
+      <div class="row" style="margin-top:8px;align-items:center">
+        <button class="sec preset" onclick="$('cifinput').click()">Load CIF…</button>
+        <span class="hint" style="margin:0">or drop a .cif anywhere on the page</span>
+        <input type="file" id="cifinput" accept=".cif,.txt" style="display:none"
+               onchange="loadCifFile(this.files[0]); this.value='';">
       </div>
     </div>
 
@@ -622,6 +635,47 @@ function scheduleEval(){
   left.addEventListener('input', scheduleEval);   // typing in any field
   left.addEventListener('change', scheduleEval);   // selects / radios / checkboxes
   if(inputsValid()) runEvaluate();                 // populate immediately on load
+})();
+
+// --- CIF loading: parse cell constants and fill the lattice fields. ----------
+// Values may carry a parenthesised uncertainty, e.g. 5.4307(2) -> 5.4307.
+function parseCif(text){
+  const num=key=>{
+    const m=text.match(new RegExp('^[ \\t]*'+key+'[ \\t]+([-+0-9.eE]+)','m'));
+    return m ? parseFloat(m[1]) : null;
+  };
+  return { a:num('_cell_length_a'), b:num('_cell_length_b'), c:num('_cell_length_c'),
+           alpha:num('_cell_angle_alpha'), beta:num('_cell_angle_beta'),
+           gamma:num('_cell_angle_gamma') };
+}
+function applyCif(text){
+  const cell=parseCif(text);
+  if(!(cell.a>0 && cell.b>0 && cell.c>0)){ showErr('CIF: cell lengths (_cell_length_a/b/c) not found'); return; }
+  $('a').value=cell.a; $('b').value=cell.b; $('c').value=cell.c;
+  if(cell.alpha>0) $('alpha').value=cell.alpha;
+  if(cell.beta>0)  $('beta').value=cell.beta;
+  if(cell.gamma>0) $('gamma').value=cell.gamma;
+  showErr('');
+  runEvaluate();
+}
+function loadCifFile(file){
+  if(!file) return;
+  const r=new FileReader();
+  r.onload=()=>applyCif(String(r.result));
+  r.onerror=()=>showErr('CIF: could not read file');
+  r.readAsText(file);
+}
+// Full-page drag & drop (a counter handles nested dragenter/leave events).
+(function initDrop(){
+  const mask=$('dropmask'); let depth=0;
+  const show=on=>mask.classList.toggle('show', on);
+  window.addEventListener('dragenter', e=>{ e.preventDefault(); depth++; show(true); });
+  window.addEventListener('dragover',  e=>{ e.preventDefault(); });
+  window.addEventListener('dragleave', e=>{ e.preventDefault(); if(--depth<=0){ depth=0; show(false); } });
+  window.addEventListener('drop', e=>{ e.preventDefault(); depth=0; show(false);
+    const f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) loadCifFile(f);
+  });
 })();
 </script>
 </body>
