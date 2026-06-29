@@ -494,7 +494,36 @@
     };
     if (!(Q > 1e-6)) return null;
     var RM = resMatrix(Q, E, p);
-    return RM ? ellipseParams(RM) : null;
+    if (!RM) return null;
+    var ep = ellipseParams(RM);
+    ep.RM = RM;                       // reduced 3×3 (Q∥,Q⊥,E) — for dispersion-axis rotation
+    return ep;
+  }
+
+  // QE resolution ellipse measured along an in-plane direction that is psi degrees from Q∥
+  // (not along Q itself). Needed for the dispersion map: the swept axis is a*/b*, so when Q
+  // is NOT along that axis (off-symmetry hk, or non-orthogonal lattice) the relevant width
+  // and focusing tilt are along the dispersion axis, obtained by rotating RM in-plane by psi.
+  // psi = azimuth(Q) − azimuth(dispersion axis). Returns [FWHM_along, FWHM_E, tilt_deg].
+  function qeAlong(RM, psiDeg) {
+    if (!RM) return null;
+    var p = psiDeg * Math.PI / 180, c = Math.cos(p), s = Math.sin(p);
+    var R = [[c, -s, 0], [s, c, 0], [0, 0, 1]], Rt = [[c, s, 0], [-s, c, 0], [0, 0, 1]];
+    function mm(A, B) {
+      var O = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      for (var i = 0; i < 3; i++) for (var j = 0; j < 3; j++) {
+        var t = 0; for (var k = 0; k < 3; k++) t += A[i][k] * B[k][j]; O[i][j] = t;
+      }
+      return O;
+    }
+    var M = mm(mm(R, RM), Rt);                 // M' = R · RM · Rᵀ (E axis fixed)
+    var F = 1.0 / Math.sqrt(8.0 * Math.log(2.0));
+    // project out the transverse axis (1): (axis0, E) ellipse
+    var a = M[0][0], b = M[2][2], ab = M[0][2], ac = M[0][1], bc = M[1][2], cc = M[1][1];
+    var AP = a - ac * ac / cc, B = b - bc * bc / cc, C = ac * bc / cc - ab;
+    var V = 0.5 * Math.atan2(-2 * C, AP - B), c2 = Math.cos(V), s2 = Math.sin(V), sd = Math.sin(2 * V);
+    return [1 / Math.sqrt(AP * c2 * c2 + B * s2 * s2 - C * sd) / F,
+            1 / Math.sqrt(AP * s2 * s2 + B * c2 * c2 + C * sd) / F, V * 180 / Math.PI];
   }
 
   // --- .scn text generation ----------------------------------------------
@@ -633,8 +662,8 @@
     build: build, anglesRaw: function (cfg, hkl, e) { return angles(buildSpec(cfg), hkl, e); },
     check_point: function (cfg, hkl, e) { var b = build(cfg); return checkPoint(b.spec, b.limits, hkl, e); },
     evaluate: evaluate, grid: grid, gridQ: gridQ, reflections: reflections,
-    satellites: satellites, brillouinZone: brillouinZone, resolution: resolution, to_scn: to_scn,
-    evaluate_map: evaluate_map, map_to_scn: map_to_scn
+    satellites: satellites, brillouinZone: brillouinZone, resolution: resolution, qeAlong: qeAlong,
+    to_scn: to_scn, evaluate_map: evaluate_map, map_to_scn: map_to_scn
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = API;

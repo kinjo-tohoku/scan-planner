@@ -220,11 +220,23 @@
           <input type="checkbox" id="showreso" checked onchange="scheduleEval()" style="width:auto"> show ellipse (scan centre)</label>
         <span style="color:var(--mut);font-size:12px" title="const-E (Q) plane → slice cross-section; dispersion / energy scan → projection (energy-integrated)">auto: slice on const-E, projection on E-scan</span>
       </div>
-      <div class="grid g4" style="margin-top:6px">
-        <label title="α1 in-pile (before mono), FWHM [min]">&alpha;1<input id="c1" value="30" oninput="scheduleEval()"></label>
-        <label title="α2 mono–sample [min]">&alpha;2<input id="c2" value="90" oninput="scheduleEval()"></label>
-        <label title="α3 sample–analyzer [min]">&alpha;3<input id="c3" value="100" oninput="scheduleEval()"></label>
-        <label title="α4 analyzer–detector [min]">&alpha;4<input id="c4" value="90" oninput="scheduleEval()"></label>
+      <div class="row" style="align-items:center;gap:8px;margin-top:6px">
+        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)" title="3bld focus = 3-blade focusing analyzer (fixed 30/90/100/90); flat = flat analyzer with Söller collimators (pick per position)">mode
+          <select id="resconfig" onchange="setResConfig()" style="width:auto">
+            <option value="focus" selected>3bld focus</option>
+            <option value="flat">flat</option>
+          </select></label>
+        <span class="hint" id="resfocusnote">fixed 30 / 90 / 100 / 90 [min]</span>
+      </div>
+      <div class="grid g4" id="collimflat" style="margin-top:6px;opacity:0.45">
+        <label title="#1 in-pile (before mono) [min]">#1<select id="c1" onchange="scheduleEval()" disabled>
+          <option value="10">10</option><option value="20">20</option><option value="30" selected>open (30)</option></select></label>
+        <label title="#2 mono–sample [min]">#2<select id="c2" onchange="scheduleEval()" disabled>
+          <option>10</option><option>20</option><option selected>40</option><option>80</option></select></label>
+        <label title="#3 sample–analyzer [min]">#3<select id="c3" onchange="scheduleEval()" disabled>
+          <option>10</option><option>20</option><option selected>40</option><option>80</option></select></label>
+        <label title="#4 analyzer–detector [min]">#4<select id="c4" onchange="scheduleEval()" disabled>
+          <option>10</option><option>20</option><option selected>40</option><option>80</option></select></label>
       </div>
       <div class="hint" id="resohint" style="margin-top:4px">collimations [min]; HK map → slice, Q–E map → projection (focusing tilt)</div>
     </div>
@@ -241,13 +253,14 @@
     <div class="card">
       <h2>Scan definition</h2>
       <div class="row" style="margin-bottom:8px;align-items:center">
-        <span class="hint" style="margin:0">type</span>
-        <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)">
-          <input type="radio" name="mode" value="line" checked onchange="setMode()" style="width:auto"> Single line</label>
-        <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)">
-          <input type="radio" name="mode" value="map" onchange="setMode()" style="width:auto"> Map</label>
+        <span class="hint" style="margin:0">scan type</span>
+        <select id="scantype" onchange="setScanType()" style="width:auto">
+          <option value="line" selected>Single line</option>
+          <option value="hk">Map &middot; Plane h&times;k (const E)</option>
+          <option value="disp">Map &middot; Dispersion Q&times;E</option>
+        </select>
       </div>
-      <div class="row" style="margin-bottom:8px">
+      <div class="row" id="presetrow" style="margin-bottom:8px">
         <button class="sec preset" onclick="preset('E')">Energy (fixed Q)</button>
         <button class="sec preset" onclick="preset('h')">Q-scan (h)</button>
         <button class="sec preset" onclick="preset('k')">Q-scan (k)</button>
@@ -273,14 +286,7 @@
       </div>
       <div class="hint" style="margin-top:4px" title="NP = floor((end − start) / Δ) + 1 on the swept axis (axis with Δ≠0). Δ=0 axes stay fixed at start.">&rarr; NP = <b id="npshow">21</b> points (computed from start, end, &Delta; on the swept axis)</div>
       <div id="mapfields" style="display:none">
-        <div class="row" style="margin-top:10px;align-items:center">
-          <span class="hint" style="margin:0">Map type</span>
-          <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)">
-            <input type="radio" name="maptype" value="hk" checked onchange="setMapType()" style="width:auto"> Plane h&times;k (const E)</label>
-          <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)">
-            <input type="radio" name="maptype" value="disp" onchange="setMapType()" style="width:auto"> Dispersion Q&times;E</label>
-        </div>
-        <div class="row" id="disprow" style="margin-top:6px;align-items:center;display:none">
+        <div class="row" id="disprow" style="margin-top:10px;align-items:center;display:none">
           <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)">disperse along
             <select id="dispdir" onchange="setDispDir()" style="width:auto">
               <option value="h" selected>h (shift h · k fixed)</option>
@@ -429,9 +435,17 @@ function preset(kind){
   if(kind==='k'){ $('dk').value=0.05; $('k1').value=(num('k0')+1.0).toFixed(3); } // 21 pts
   onScanInput(); scheduleEval();
 }
-function isMap(){ return document.querySelector('input[name=mode]:checked').value==='map'; }
-function setMode(){ const m=isMap(); $('mapfields').style.display=m?'block':'none'; if(m) setMapType(); }
-function mapType(){ return document.querySelector('input[name=maptype]:checked').value; }
+function isMap(){ const e=$('scantype'); return !!e && e.value!=='line'; }
+// Single dropdown drives Single line / Plane h×k / Dispersion Q×E. Map-only controls live
+// in #mapfields; presets are line-only. mapType() collapses the dropdown to hk|disp.
+function setScanType(){
+  const m=isMap();
+  $('mapfields').style.display = m ? 'block' : 'none';
+  if($('presetrow')) $('presetrow').style.display = m ? 'none' : 'flex';
+  if(m) setMapType();
+  scheduleEval();
+}
+function mapType(){ const e=$('scantype'); return (e && e.value==='disp') ? 'disp' : 'hk'; }
 function dispDir(){ const el=$('dispdir'); return (el && el.value==='k') ? 'k' : 'h'; }
 function outerAxisIdx(){   // outer (shifted) axis: hk→k(1); disp→h(0) or k(1)
   if(mapType()==='hk') return 1;
@@ -547,7 +561,19 @@ async function evalScan(){
     renderSummary(res); renderTable(res.points); plot(res.points);
   }
 }
-function getCollim(){ return {a1:num('c1'),a2:num('c2'),a3:num('c3'),a4:num('c4')}; }
+// 3bld focus = 3-blade focusing analyzer → fixed effective collimations (.d file).
+// flat = flat analyzer with discrete Söller collimators chosen per position (#1–#4).
+function getCollim(){
+  if($('resconfig') && $('resconfig').value==='focus') return {a1:30,a2:90,a3:100,a4:90};
+  return {a1:num('c1'),a2:num('c2'),a3:num('c3'),a4:num('c4')};
+}
+function setResConfig(){
+  const flat = $('resconfig') && $('resconfig').value==='flat';
+  ['c1','c2','c3','c4'].forEach(id=>{ const e=$(id); if(e) e.disabled=!flat; });
+  const g=$('collimflat'); if(g) g.style.opacity=flat?'1':'0.45';
+  const n=$('resfocusnote'); if(n) n.style.display=flat?'none':'';
+  scheduleEval();
+}
 // Resolution ellipse at the central reachable point (Cooper-Nathans, local engine).
 function computeReso(pts){
   lastReso=null;
@@ -661,10 +687,16 @@ function resoTrace(traces){
 // QEplane (ΔQ∥[Å⁻¹], ΔE[meV]) ellipse has its Q∥ axis converted to the swept r.l.u.
 // axis by the reciprocal length (a* or b*), so the tilt vs the dispersion is shown.
 function resoTraceQE(traces, xk){
-  const ell = lastReso && lastReso.QEplane;   // dispersion / E-scan → projection
-  if(!ell || lastReso[xk]===undefined) return;
+  if(!lastReso || !lastReso.RM || lastReso[xk]===undefined) return;
   const conv = xk==='k' ? num('bstar') : num('astar');
   if(!(conv>0)) return;
+  // Swept axis is a* (h, azimuth 0°) or b* (k, azimuth γ*) in the (Qx,Qy) frame. Rotate the
+  // resolution into that axis so off-symmetry hk / non-orthogonal lattices read the width and
+  // focusing tilt ALONG the dispersion direction, not along Q (they differ when Q ∦ swept axis).
+  const beta = xk==='k' ? Math.acos(Math.max(-1,Math.min(1,num('cgs'))))*180/Math.PI : 0;
+  const phi = Math.atan2(lastReso.qy, lastReso.qx)*180/Math.PI;
+  const ell = Planner.qeAlong(lastReso.RM, phi - beta);
+  if(!ell) return;
   const w=ell[0], h=ell[1], ang=ell[2];
   const cx=lastReso[xk], cy=lastReso.E, a=w/2, b=h/2, th=ang*Math.PI/180, ct=Math.cos(th), st=Math.sin(th);
   const xs=[],ys=[];
