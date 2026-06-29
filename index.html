@@ -156,6 +156,7 @@
         <label>&beta; [&deg;]<input id="beta" value="90"></label>
         <label>&gamma; [&deg;]<input id="gamma" value="90"></label>
       </div>
+      <div class="hint" id="recip" style="margin-top:4px" title="Reciprocal-lattice parameters filman calls AS, BS, CG (set on the instrument).">a* = …</div>
       <div class="row" style="margin-top:6px;align-items:center">
         <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)"
                title="Lattice centering for Bragg-reflection extinctions. P = show all reflections.">centering
@@ -194,7 +195,9 @@
       <h2>Spectrometer (GPTAS)</h2>
       <div class="grid">
         <label title="Which of ki/kf is held constant during the scan">fixed<select id="fixed"><option value="kf" selected>kf</option><option value="ki">ki</option></select></label>
-        <label title="Value of the fixed wavevector (Å⁻¹). GPTAS default kf = 2.662">k fixed [&Aring;&#8315;&sup1;]<input id="kfix" value="2.662"></label>
+        <label title="Fixed energy [meV] → sets k = sqrt(E/2.07214). 14.7 (PG002) standard.">E_fix [meV]<select id="efix" onchange="setEfix()">
+          <option value="14.7" selected>14.7</option><option value="13.7">13.7</option><option value="30.5">30.5</option></select></label>
+        <label title="Value of the fixed wavevector (Å⁻¹). GPTAS default kf = 2.662 (14.7 meV)">k fixed [&Aring;&#8315;&sup1;]<input id="kfix" value="2.662"></label>
         <label title="Analyzer crystal: PG002 (d=3.355 Å) or PG004 (d=1.6775 Å)">analyzer<select id="ana"><option value="3.355" selected>PG002</option><option value="1.6775">PG004</option></select></label>
       </div>
     </div>
@@ -236,7 +239,7 @@
         <label>&Delta;E<input id="dE" value="0" oninput="onScanInput()"></label>
       </div>
       <div class="grid g2" style="margin-top:6px">
-        <label>monitor MN<input id="mon" value="10000"></label>
+        <label>monitor MN<input id="mon" value="5000"></label>
         <label title="Adaptive counting (NT) — not implemented yet" style="opacity:.5">NT (not implemented)<input id="nt" value="0" disabled></label>
       </div>
       <div class="hint" style="margin-top:4px" title="NP = floor((end − start) / Δ) + 1 on the swept axis (axis with Δ≠0). Δ=0 axes stay fixed at start.">&rarr; NP = <b id="npshow">21</b> points (computed from start, end, &Delta; on the swept axis)</div>
@@ -301,6 +304,20 @@ let lastBZ = null;     // 1st Brillouin zone polygon
 function toggleHelp(open){ $('help').classList.toggle('open', open); }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') toggleHelp(false); });
 
+// Reciprocal-lattice readout (filman AS=a*, BS=b*, CG=cosγ*).
+function updateRecip(){
+  const a=num('a'),b=num('b'),c=num('c');
+  const al=num('alpha')*Math.PI/180, be=num('beta')*Math.PI/180, ga=num('gamma')*Math.PI/180;
+  const ca=Math.cos(al),cb=Math.cos(be),cg=Math.cos(ga),sa=Math.sin(al),sb=Math.sin(be);
+  const V=a*b*c*Math.sqrt(Math.max(0,1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg));
+  const el=$('recip'); if(!el) return;
+  if(!(V>0)){ el.textContent='a* = —'; return; }
+  const astar=2*Math.PI*b*c*sa/V, bstar=2*Math.PI*a*c*sb/V, cgs=(ca*cb-cg)/(sa*sb);
+  el.textContent=`AS a*=${astar.toFixed(4)}  BS b*=${bstar.toFixed(4)}  CG cosγ*=${cgs.toFixed(4)} [Å⁻¹]`;
+}
+// Fixed-energy presets → k = sqrt(E/2.07214).
+function setEfix(){ $('kfix').value=Math.sqrt(num('efix')/2.07214).toFixed(4); updateRecip(); scheduleEval(); }
+
 // Keep Plotly's internal size in sync with the container. Without this, a layout
 // reflow (e.g. a scrollbar appearing after Evaluate shrinks the plot ~15px) leaves
 // Plotly with a stale width, so the drag-zoom rectangle is offset from the cursor.
@@ -319,7 +336,11 @@ function getConfig() {
     sense_m:1, sense_s:1, sense_a:1,                   // GPTAS hardware: all +1 fixed
     plane_u:[num('uh'),num('uk'),num('ul')], plane_v:[num('vh'),num('vk'),num('vl')],
     centering:$('centering').value, km:[num('kmh'),num('kmk'),num('kml')],
-    limits:{ C2:[num('C2lo'),num('C2hi')], A2:[num('A2lo'),num('A2hi')] }
+    // C2/A2 = user soft limits; A2 is also capped to the hard range [5,110] and
+    // A1 (mono 2θ) has the internal hard limit [18,53] (prevents over-rotation).
+    limits:{ C2:[num('C2lo'),num('C2hi')],
+             A2:[Math.max(num('A2lo'),5), Math.min(num('A2hi'),110)],
+             A1:[18,53] }
   };
 }
 // NP is computed from start/end/step on the swept axes (axes with |Δ|>0).
@@ -684,8 +705,9 @@ function scheduleEval(){
 }
 (function initLive(){
   const left=document.querySelector('.left');
-  left.addEventListener('input', scheduleEval);   // typing in any field
+  left.addEventListener('input', ()=>{ updateRecip(); scheduleEval(); });   // typing
   left.addEventListener('change', scheduleEval);   // selects / radios / checkboxes
+  updateRecip();
   if(inputsValid()) runEvaluate();                 // populate immediately on load
 })();
 
