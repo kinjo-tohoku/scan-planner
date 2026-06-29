@@ -483,7 +483,14 @@ function renderSummary(res){
   if(nd) s += ` &nbsp; <span class="bad">⌫ ${nd} dropped (auto-fit · outside reachable region)</span>`;
   if(res.n_lines > 40){ const nb=Math.ceil(res.n_lines/40);
     s += ` &nbsp; <span style="color:var(--mut)">→ ${nb} GO blocks of ≤40 (NS restarts each block)</span>`; }
+  // estimated time: monitor 5000 cts/s (MN×0.2 s/point) + 10 s motor move per point.
+  const secs = res.n_reachable * (Math.round(num('mon'))*0.2 + 10);
+  s += ` &nbsp; <span style="color:var(--mut)" title="MN×0.2 s count (5000 cts/s) + 10 s motor move, per reachable point">⏱ est. ${fmtDur(secs)}</span>`;
   $('summary').innerHTML = s;
+}
+function fmtDur(s){
+  s=Math.round(s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), sec=s%60;
+  return h ? `${h}h ${m}m` : (m ? `${m}m ${sec}s` : `${sec}s`);
 }
 function renderMapTable(lines){
   const tb = $('tbl').querySelector('tbody'); tb.innerHTML='';
