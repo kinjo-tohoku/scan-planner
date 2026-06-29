@@ -121,10 +121,16 @@
          The computed <b>NP</b> is shown live under the grid.</p>
 
       <h3>Map types</h3>
+      <p>Maps sweep along the <b>scattering plane</b> directions <b>u</b>, <b>v</b> (the two
+         orienting reflections), so any plane works &mdash; e.g. u=(1&nbsp;1&nbsp;0), v=(0&nbsp;0&nbsp;1)
+         is the HHL plane. You give the <b>start point</b> plus an <b>extent + &Delta;</b> for the
+         inner and outer sweeps. Default u=(1&nbsp;0&nbsp;0), v=(0&nbsp;1&nbsp;0) is the usual h&times;k map.</p>
       <ul>
-        <li><b>Plane h&times;k (const E)</b> &mdash; inner axis sweeps <b>h</b> (start&rarr;end by &Delta;h),
-            outer axis shifts <b>k</b> (start&rarr;<i>k end</i> by <i>&Delta;k (outer)</i>). Number of lines is computed.</li>
-        <li><b>Dispersion Q&times;E</b> &mdash; inner axis sweeps <b>E</b> at constant Q, outer axis shifts <b>h</b>.</li>
+        <li><b>Plane u&times;v (const E)</b> &mdash; a grid in the plane: inner sweep runs along
+            <b>u</b>, repeated for each step along <b>v</b>. The start point must lie in the plane.</li>
+        <li><b>Dispersion (along u/v) &times;E</b> &mdash; inner sweep is <b>E</b> at constant Q;
+            the outer shift moves along <b>u</b> or <b>v</b> (pick with &ldquo;disperse along&rdquo;).
+            The plot x-axis is the reduced coordinate &xi; along that direction.</li>
       </ul>
       <p>Each line becomes one <code>NS=</code> scan; the map runs as a combined <code>GO 1-N</code>.</p>
 
@@ -268,26 +274,34 @@
         <button class="sec preset" onclick="preset('h')">Q-scan (h)</button>
         <button class="sec preset" onclick="preset('k')">Q-scan (k)</button>
       </div>
-      <div class="grid g4">
+      <div class="grid g4" id="startrow">
         <label>h start<input id="h0" value="1" oninput="onScanInput()"></label>
         <label>k start<input id="k0" value="0" oninput="onScanInput()"></label>
-        <label>l start<input id="l0" value="0"></label>
+        <label>l start<input id="l0" value="0" oninput="onScanInput()"></label>
         <label>E start<input id="E0" value="0" oninput="onScanInput()"></label>
+      </div>
+      <div class="grid g4" id="endrow">
         <label>h end<input id="h1" value="2" oninput="onScanInput()"></label>
         <label>k end<input id="k1" value="0" oninput="onScanInput()"></label>
         <label>l end<input id="l1" value="0"></label>
         <label>E end<input id="E1" value="0" oninput="onScanInput()"></label>
+      </div>
+      <div class="grid g4" id="steprow">
         <label>&Delta;h<input id="dh" value="0.05" oninput="onScanInput()"></label>
         <label>&Delta;k<input id="dk" value="0" oninput="onScanInput()"></label>
         <label>&Delta;l<input id="dl" value="0"></label>
         <label>&Delta;E<input id="dE" value="0" oninput="onScanInput()"></label>
+      </div>
+      <div class="grid g2" id="mapinner" style="display:none;margin-top:2px" title="The inner (fast) sweep of the map: a line of points along this direction, repeated for each outer step.">
+        <label><span id="iextlab">extent along u</span><input id="iext" value="1" oninput="onScanInput()"></label>
+        <label><span id="isteplab">&Delta; along u</span><input id="istep" value="0.05" oninput="onScanInput()"></label>
       </div>
       <div class="grid g3" style="margin-top:6px">
         <label>monitor MN<input id="mon" value="5000"></label>
         <label title="Monitor count rate [kcps]. Est. time ≈ MN/MON per point (rough; varies with Ei & collimation).">MON [kcps]<input id="mrate" value="5"></label>
         <label title="Adaptive counting (NT) — not implemented yet" style="opacity:.5">NT (n/a)<input id="nt" value="0" disabled></label>
       </div>
-      <div class="hint" style="margin-top:4px" title="NP = floor((end − start) / Δ) + 1 on the swept axis (axis with Δ≠0). Δ=0 axes stay fixed at start.">&rarr; NP = <b id="npshow">21</b> points (computed from start, end, &Delta; on the swept axis)</div>
+      <div class="hint" style="margin-top:4px" title="Points along the inner sweep = floor(extent/Δ)+1.">&rarr; NP = <b id="npshow">21</b> points along the scan</div>
       <div id="mapfields" style="display:none">
         <div class="row" id="disprow" style="margin-top:10px;align-items:center;display:none">
           <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)" title="Which scattering-plane direction the constant-Q energy scans step along">disperse along
@@ -301,7 +315,7 @@
           <label><span id="oendlab">extent along v</span><input id="oend" value="1" oninput="onScanInput()"></label>
           <label><span id="ostplab">&Delta; along v</span><input id="ostep" value="0.1" oninput="onScanInput()"></label>
         </div>
-        <div class="hint" style="margin-top:4px">&rarr; <b id="nlshow">11</b> lines (from start, end, &Delta;)</div>
+        <div class="hint" style="margin-top:4px">&rarr; <b id="nlshow">11</b> lines &times; NP points</div>
         <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink);margin-top:6px">
           <input type="checkbox" id="trim" checked style="width:auto"> Auto-fit to reachable region (drop out-of-region points, extend each line to the edge)
         </label>
@@ -445,67 +459,70 @@ function isMap(){ const e=$('scantype'); return !!e && e.value!=='line'; }
 function setScanType(){
   const m=isMap();
   $('mapfields').style.display = m ? 'block' : 'none';
+  $('mapinner').style.display  = m ? '' : 'none';   // inner extent/Δ control (map only)
+  $('endrow').style.display    = m ? 'none' : '';   // per-axis end/Δ grid (single-line only)
+  $('steprow').style.display   = m ? 'none' : '';
   if($('presetrow')) $('presetrow').style.display = m ? 'none' : 'flex';
   if(m) setMapType();
   scheduleEval();
 }
 function mapType(){ const e=$('scantype'); return (e && e.value==='disp') ? 'disp' : 'hk'; }
-// Maps sweep along the SCATTERING-PLANE directions u, v (the two orienting reflections),
-// not hardcoded h,k — so any plane (e.g. (110)/(001) = HHL) works. Default u=(100),v=(010)
-// reproduces the old h×k behaviour.
+// A map is just: start point + an inner sweep + an outer sweep, each "extent + Δ" along a
+// scattering-plane direction. Plane map: inner along u, outer along v. Dispersion: inner = E,
+// outer along u or v. Sweeping along u,v (the orienting reflections) makes ANY plane work
+// (e.g. (110)/(001) = HHL); default u=(100),v=(010) is the old h×k map.
 function planeU(){ return [num('uh'),num('uk'),num('ul')]; }
 function planeV(){ return [num('vh'),num('vk'),num('vl')]; }
 function fmtv(v){ return '('+v.map(x=>{ const r=Math.round(x*100)/100; return Object.is(r,-0)?0:r; }).join(' ')+')'; }
 function dispDir(){ const el=$('dispdir'); return (el && el.value==='v') ? 'v' : 'u'; }
 function dispVec(){ return dispDir()==='v' ? planeV() : planeU(); }
-// outer (line-to-line) shift direction: plane map → v ; dispersion → the chosen in-plane dir.
 function outerDir(){ return mapType()==='disp' ? dispVec() : planeV(); }
-// Configure the dispersion outer axis (which in-plane direction the const-Q E-scans step along).
+// Dispersion: which in-plane direction the constant-Q energy scans step along.
 function setDispDir(){
   const d=dispVec(), nm=dispDir();
   $('oendlab').textContent='extent along '+nm; $('ostplab').textContent='Δ along '+nm;
-  $('maphint').textContent=`Inner: sweep E by ΔE (const Q). Outer: shift along ${nm}=${fmtv(d)} by Δ.`;
+  $('maphint').textContent=`Inner: sweep E by ΔE (const Q). Outer: shift along ${nm}=${fmtv(d)}.`;
   onScanInput(); scheduleEval();
 }
 function setMapType(){
   const isDisp = mapType()==='disp';
   if($('disprow')) $('disprow').style.display = isDisp ? 'flex' : 'none';
-  if(!isDisp){                           // plane map: inner sweeps along u (const E), outer along v
-    const u=planeU(), v=planeV(), dxi=0.05, ext=1.0;
-    $('dh').value=dxi*u[0]; $('dk').value=dxi*u[1]; $('dl').value=dxi*u[2]; $('dE').value=0;
-    $('h1').value=(num('h0')+ext*u[0]).toFixed(3); $('k1').value=(num('k0')+ext*u[1]).toFixed(3);
-    $('l1').value=(num('l0')+ext*u[2]).toFixed(3); $('E1').value=num('E0');
+  if(!isDisp){                           // plane map: inner along u, outer along v, const E
+    $('iextlab').textContent='extent along u'; $('isteplab').textContent='Δ along u';
+    $('iext').value=1; $('istep').value=0.05;
     $('oendlab').textContent='extent along v'; $('ostplab').textContent='Δ along v';
     $('oend').value=1; $('ostep').value=0.1;
-    $('maphint').textContent=`Inner: sweep along u=${fmtv(u)} by Δ (const E). Outer: shift along v=${fmtv(v)} by Δ.`;
+    $('maphint').textContent=`Inner: sweep along u=${fmtv(planeU())}. Outer: shift along v=${fmtv(planeV())}. Start must lie in the plane.`;
     onScanInput();
-  } else {                               // dispersion: inner sweeps E (const Q), outer along u or v
-    $('dh').value=0; $('dk').value=0; $('dl').value=0; $('dE').value=0.5;
-    $('E1').value=(num('E0')+10).toFixed(3);
-    $('h1').value=num('h0'); $('k1').value=num('k0'); $('l1').value=num('l0');
-    $('ostep').value=0.1; $('oend').value=0.6;
+  } else {                               // dispersion: inner sweeps E, outer along u or v
+    $('iextlab').textContent='E extent'; $('isteplab').textContent='ΔE';
+    $('iext').value=10; $('istep').value=0.5;
+    $('oend').value=0.6; $('ostep').value=0.1;
     setDispDir();
   }
 }
-// Outer sweeps the chosen direction from 0 (the start point) to "extent" by step Δ.
-function computeNlines(){
-  const ext=Math.abs(num('oend')), st=Math.abs(num('ostep'));
-  if(!isFinite(st) || st<1e-9) return 1;
-  return Math.floor(ext/st + 1e-6)+1;
-}
+// steps over an extent: floor(|extent|/|Δ|)+1
+function lineCount(ext, step){ ext=Math.abs(ext); step=Math.abs(step);
+  return (!isFinite(step)||step<1e-9) ? 1 : Math.floor(ext/step + 1e-6)+1; }
+function computeNlines(){ return lineCount(num('oend'), num('ostep')); }
+// inner-sweep points: map → extent/Δ along u (or E); single line → from the 12-field grid.
+function innerCount(){ return isMap() ? lineCount(num('iext'), num('istep')) : computeNP(); }
 function onScanInput(){
-  const np=$('npshow'); if(np) np.textContent=computeNP();
+  const np=$('npshow'); if(np) np.textContent=innerCount();
   const nl=$('nlshow'); if(nl) nl.textContent=computeNlines();
 }
-// Scattering plane (u,v) changed: re-align a map's sweep to the new plane, then re-evaluate.
+// Scattering plane (u,v) changed: re-align an open map to the new plane, then re-evaluate.
 function onPlaneChange(){ if(isMap()) setMapType(); scheduleEval(); }
 function getMap(){
-  const dir=outerDir(), dn=sgnStep(0, num('oend'), num('ostep'));   // signed Δ along the outer dir
-  const outer=[dir[0]*dn, dir[1]*dn, dir[2]*dn, 0];
-  return { start:[num('h0'),num('k0'),num('l0'),num('E0')],
-           step:scanStep(),
-           outer, nlines:computeNlines(),
-           npts:computeNP(),
+  const isDisp=mapType()==='disp';
+  const istep=sgnStep(0, num('iext'), num('istep'));     // signed inner step
+  let step;
+  if(isDisp){ step=[0,0,0,istep]; }                      // inner = E sweep (const Q)
+  else { const u=planeU(); step=[u[0]*istep, u[1]*istep, u[2]*istep, 0]; }   // inner along u
+  const od=outerDir(), on=sgnStep(0, num('oend'), num('ostep'));
+  const outer=[od[0]*on, od[1]*on, od[2]*on, 0];
+  return { start:[num('h0'),num('k0'),num('l0'),num('E0')], step,
+           outer, nlines:computeNlines(), npts:innerCount(),
            monitor:Math.round(num('mon')), nt:Math.round(num('nt')),
            trim:$('trim').checked };
 }
