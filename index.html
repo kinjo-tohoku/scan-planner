@@ -38,8 +38,8 @@
   button.sec { background:#21262d; color:var(--ink); border:1px solid var(--line); }
   button:hover { filter:brightness(1.1); }
   .btns { display:flex; gap:8px; flex-wrap:wrap; }
-  .summary { font-size:14px; margin:10px 0 6px; }
-  .esttime { font-size:16px; margin:2px 0 12px; padding:7px 11px; border-left:3px solid var(--acc);
+  .summary { font-size:14px; margin:0 0 8px; }
+  .esttime { font-size:16px; margin:8px 0 2px; padding:7px 11px; border-left:3px solid var(--acc);
              background:rgba(88,166,255,0.10); border-radius:5px; }
   .esttime b { font-size:20px; color:var(--acc); }
   .ok { color:var(--grn); } .bad { color:var(--red); }
@@ -318,8 +318,8 @@
   <div class="right">
     <div class="card">
       <div id="summary" class="summary">&mdash; not evaluated yet &mdash;</div>
-      <div id="esttime" class="esttime" style="display:none"></div>
       <div id="plot"></div>
+      <div id="esttime" class="esttime" style="display:none"></div>
     </div>
     <div class="card">
       <h2>Per-point results</h2>
@@ -647,8 +647,9 @@ function renderTable(pts){
 }
 const PLOT_CFG={responsive:true, displayModeBar:true, displaylogo:false,
   doubleClick:'reset+autosize', modeBarButtonsToRemove:['lasso2d','select2d']};
-const PLOT_BASE={margin:{l:50,r:10,t:10,b:40}, paper_bgcolor:'#1a2129',
-  plot_bgcolor:'#0d1117', font:{color:'#e6edf3'}, legend:{orientation:'h'}};
+const PLOT_BASE={margin:{l:50,r:10,t:10,b:66}, paper_bgcolor:'#1a2129',
+  plot_bgcolor:'#0d1117', font:{color:'#e6edf3'},
+  legend:{orientation:'h', y:-0.22, yanchor:'top'}};   // legend dropped below the x-axis title
 const hover=(p,i,extra)=> `#${i+1} ${extra}<br>`
   + (p.reachable ? Object.entries(p.angles).map(([k,v])=>k+'='+v.toFixed(1)).join(' ')
                  : '✗ '+p.reason);
