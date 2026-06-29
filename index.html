@@ -277,6 +277,13 @@
           <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)">
             <input type="radio" name="maptype" value="disp" onchange="setMapType()" style="width:auto"> Dispersion Q&times;E</label>
         </div>
+        <div class="row" id="disprow" style="margin-top:6px;align-items:center;display:none">
+          <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)">disperse along
+            <select id="dispdir" onchange="setDispDir()" style="width:auto">
+              <option value="h" selected>h (shift h · k fixed)</option>
+              <option value="k">k (shift k · h fixed)</option>
+            </select></label>
+        </div>
         <div class="hint" id="maphint" style="margin-top:6px">Inner: sweep h by &Delta;h up to h end (const E). Outer: shift k from k start to k end by &Delta;k.</div>
         <div class="grid g2" style="margin-top:4px">
           <label><span id="oendlab">k end</span><input id="oend" value="1" oninput="onScanInput()"></label>
@@ -385,8 +392,8 @@ function getConfig() {
     limits:{ C2:[num('C2lo'),num('C2hi')], A2:[5,110], A1:[18,53] }
   };
 }
-// NP is computed from start/end/step on the swept axes (axes with |Δ|>0).
-// Δ=0 axes stay fixed at their start value, so their end field is ignored.
+// NP from start/end/|Δ| on the swept axes. Δ is a step MAGNITUDE; the scan runs
+// start→end (either direction), so the signed step is set in scanStep().
 function computeNP(){
   const s=[num('h0'),num('k0'),num('l0'),num('E0')];
   const e=[num('h1'),num('k1'),num('l1'),num('E1')];
@@ -394,15 +401,19 @@ function computeNP(){
   let np=1;
   for(let i=0;i<4;i++){
     if(isFinite(d[i]) && Math.abs(d[i])>1e-9){
-      const n=Math.floor((e[i]-s[i])/d[i] + 1e-6)+1;
+      const n=Math.floor(Math.abs(e[i]-s[i])/Math.abs(d[i]) + 1e-6)+1;
       if(n>np) np=n;
     }
   }
   return np<1?1:np;
 }
+// signed step toward end (Δ as magnitude, direction = sign(end−start))
+function sgnStep(s,e,d){ d=Math.abs(d); return (d<1e-9||Math.abs(e-s)<1e-12)?0:(e>=s?1:-1)*d; }
+function scanStep(){ return [sgnStep(num('h0'),num('h1'),num('dh')), sgnStep(num('k0'),num('k1'),num('dk')),
+                             sgnStep(num('l0'),num('l1'),num('dl')), sgnStep(num('E0'),num('E1'),num('dE'))]; }
 function getScan() {
   return { start:[num('h0'),num('k0'),num('l0'),num('E0')],
-           step:[num('dh'),num('dk'),num('dl'),num('dE')],
+           step:scanStep(),
            npts:computeNP(),
            monitor:Math.round(num('mon')), nt:Math.round(num('nt')) };
 }
@@ -418,32 +429,49 @@ function preset(kind){
 function isMap(){ return document.querySelector('input[name=mode]:checked').value==='map'; }
 function setMode(){ const m=isMap(); $('mapfields').style.display=m?'block':'none'; if(m) setMapType(); }
 function mapType(){ return document.querySelector('input[name=maptype]:checked').value; }
-function outerAxisIdx(){ return mapType()==='hk' ? 1 : 0; }   // outer axis: hk→k(1), disp→h(0)
+function dispDir(){ const el=$('dispdir'); return (el && el.value==='k') ? 'k' : 'h'; }
+function outerAxisIdx(){   // outer (shifted) axis: hk→k(1); disp→h(0) or k(1)
+  if(mapType()==='hk') return 1;
+  return dispDir()==='k' ? 1 : 0;
+}
+// Configure the dispersion outer axis (which Q direction the const-Q E-scans step).
+function setDispDir(){
+  if(dispDir()==='k'){
+    $('oendlab').textContent='k end'; $('ostplab').textContent='Δk (outer)';
+    $('oend').value=(num('k0')+0.6).toFixed(2);
+    $('maphint').textContent='Inner: sweep E by ΔE up to E end (const Q). Outer: shift k from k start to k end by Δk (h fixed).';
+  } else {
+    $('oendlab').textContent='h end'; $('ostplab').textContent='Δh (outer)';
+    $('oend').value=(num('h0')+0.6).toFixed(2);
+    $('maphint').textContent='Inner: sweep E by ΔE up to E end (const Q). Outer: shift h from h start to h end by Δh (k fixed).';
+  }
+  onScanInput(); scheduleEval();
+}
 function setMapType(){
   // Map type picks the inner (swept) axis and the outer (shifted) axis.
-  // Inner uses start/end/Δ → NP; outer uses start/end/Δ → number of lines.
-  if(mapType()==='hk'){                 // inner: sweep h (const E), outer: k
+  const isDisp = mapType()==='disp';
+  if($('disprow')) $('disprow').style.display = isDisp ? 'flex' : 'none';
+  if(!isDisp){                           // hk plane: inner sweep h (const E), outer k
     $('dh').value=0.05; $('dk').value=0; $('dl').value=0; $('dE').value=0;
     $('h1').value=(num('h0')+1.0).toFixed(3);
     $('k1').value=num('k0'); $('l1').value=num('l0'); $('E1').value=num('E0');
     $('oendlab').textContent='k end'; $('ostplab').textContent='Δk (outer)';
     $('oend').value=1; $('ostep').value=0.1;
     $('maphint').textContent='Inner: sweep h by Δh up to h end (const E). Outer: shift k from k start to k end by Δk.';
-  } else {                              // inner: sweep E (const Q), outer: h
+    onScanInput();
+  } else {                               // dispersion: inner sweep E (const Q), outer h or k
     $('dh').value=0; $('dk').value=0; $('dl').value=0; $('dE').value=0.5;
     $('E1').value=(num('E0')+10).toFixed(3);
     $('h1').value=num('h0'); $('k1').value=num('k0'); $('l1').value=num('l0');
-    $('oendlab').textContent='h end'; $('ostplab').textContent='Δh (outer)';
-    $('oend').value=(num('h0')+0.6).toFixed(2); $('ostep').value=0.1;
-    $('maphint').textContent='Inner: sweep E by ΔE up to E end (const Q). Outer: shift h from h start to h end by Δh.';
+    $('ostep').value=0.1;
+    setDispDir();
   }
-  onScanInput();
 }
 function computeNlines(){
   const oStart=[num('h0'),num('k0'),num('l0'),num('E0')][outerAxisIdx()];
   const oEnd=num('oend'), oStep=num('ostep');
   if(!isFinite(oStep) || Math.abs(oStep)<1e-9) return 1;
-  const n=Math.floor((oEnd-oStart)/oStep + 1e-6)+1;
+  const n=Math.floor(Math.abs(oEnd-oStart)/Math.abs(oStep) + 1e-6)+1;
   return n<1?1:n;
 }
 function onScanInput(){
@@ -451,9 +479,11 @@ function onScanInput(){
   const nl=$('nlshow'); if(nl) nl.textContent=computeNlines();
 }
 function getMap(){
-  const outer=[0,0,0,0]; outer[outerAxisIdx()]=num('ostep');
+  const idx=outerAxisIdx();
+  const oStart=[num('h0'),num('k0'),num('l0'),num('E0')][idx];
+  const outer=[0,0,0,0]; outer[idx]=sgnStep(oStart, num('oend'), num('ostep'));
   return { start:[num('h0'),num('k0'),num('l0'),num('E0')],
-           step:[num('dh'),num('dk'),num('dl'),num('dE')],
+           step:scanStep(),
            outer, nlines:computeNlines(),
            npts:computeNP(),
            monitor:Math.round(num('mon')), nt:Math.round(num('nt')),
