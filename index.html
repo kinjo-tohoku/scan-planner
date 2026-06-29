@@ -147,7 +147,12 @@
 <div class="wrap">
   <div class="left">
     <div class="card">
-      <h2>Sample (real-space lattice)</h2>
+      <h2>Sample (lattice)</h2>
+      <div class="row" style="margin-bottom:6px;align-items:center">
+        <span class="hint" style="margin:0">input</span>
+        <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)"><input type="radio" name="latmode" value="real" checked onchange="updateLattice();scheduleEval()" style="width:auto"> real</label>
+        <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)"><input type="radio" name="latmode" value="recip" onchange="updateLattice();scheduleEval()" style="width:auto"> reciprocal (AS,BS,CG)</label>
+      </div>
       <div class="grid g3">
         <label>a [&Aring;]<input id="a" value="4.0"></label>
         <label>b [&Aring;]<input id="b" value="4.0"></label>
@@ -156,7 +161,11 @@
         <label>&beta; [&deg;]<input id="beta" value="90"></label>
         <label>&gamma; [&deg;]<input id="gamma" value="90"></label>
       </div>
-      <div class="hint" id="recip" style="margin-top:4px" title="Reciprocal-lattice parameters filman calls AS, BS, CG (set on the instrument).">a* = …</div>
+      <div class="grid g3" style="margin-top:4px" title="filman AS=a*, BS=b*, CG=cosγ*. Editable when 'reciprocal' is selected.">
+        <label>a* [&Aring;&#8315;&sup1;]<input id="astar" value="1.5708" disabled></label>
+        <label>b* [&Aring;&#8315;&sup1;]<input id="bstar" value="1.5708" disabled></label>
+        <label>cos&gamma;*<input id="cgs" value="0" disabled></label>
+      </div>
       <div class="row" style="margin-top:6px;align-items:center">
         <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)"
                title="Lattice centering for Bragg-reflection extinctions. P = show all reflections.">centering
@@ -238,9 +247,10 @@
         <label>&Delta;l<input id="dl" value="0"></label>
         <label>&Delta;E<input id="dE" value="0" oninput="onScanInput()"></label>
       </div>
-      <div class="grid g2" style="margin-top:6px">
+      <div class="grid g3" style="margin-top:6px">
         <label>monitor MN<input id="mon" value="5000"></label>
-        <label title="Adaptive counting (NT) — not implemented yet" style="opacity:.5">NT (not implemented)<input id="nt" value="0" disabled></label>
+        <label title="Monitor count rate [kcps]. Est. time ≈ MN/MON per point (rough; varies with Ei & collimation).">MON [kcps]<input id="mrate" value="5"></label>
+        <label title="Adaptive counting (NT) — not implemented yet" style="opacity:.5">NT (n/a)<input id="nt" value="0" disabled></label>
       </div>
       <div class="hint" style="margin-top:4px" title="NP = floor((end − start) / Δ) + 1 on the swept axis (axis with Δ≠0). Δ=0 axes stay fixed at start.">&rarr; NP = <b id="npshow">21</b> points (computed from start, end, &Delta; on the swept axis)</div>
       <div id="mapfields" style="display:none">
@@ -304,19 +314,37 @@ let lastBZ = null;     // 1st Brillouin zone polygon
 function toggleHelp(open){ $('help').classList.toggle('open', open); }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') toggleHelp(false); });
 
-// Reciprocal-lattice readout (filman AS=a*, BS=b*, CG=cosγ*).
-function updateRecip(){
-  const a=num('a'),b=num('b'),c=num('c');
-  const al=num('alpha')*Math.PI/180, be=num('beta')*Math.PI/180, ga=num('gamma')*Math.PI/180;
-  const ca=Math.cos(al),cb=Math.cos(be),cg=Math.cos(ga),sa=Math.sin(al),sb=Math.sin(be);
-  const V=a*b*c*Math.sqrt(Math.max(0,1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg));
-  const el=$('recip'); if(!el) return;
-  if(!(V>0)){ el.textContent='a* = —'; return; }
-  const astar=2*Math.PI*b*c*sa/V, bstar=2*Math.PI*a*c*sb/V, cgs=(ca*cb-cg)/(sa*sb);
-  el.textContent=`AS a*=${astar.toFixed(4)}  BS b*=${bstar.toFixed(4)}  CG cosγ*=${cgs.toFixed(4)} [Å⁻¹]`;
+// Lattice input can be real (a,b,c,α,β,γ) or reciprocal (a*,b*,cosγ*). The active
+// side drives the other (kept in sync) so getConfig always reads the real lattice.
+function latticeMode(){ const r=document.querySelector('input[name=latmode]:checked'); return r?r.value:'real'; }
+function updateLattice(){
+  const mode=latticeMode();
+  ['a','b','alpha','beta','gamma'].forEach(id=>$(id).disabled=(mode!=='real'));
+  ['astar','bstar','cgs'].forEach(id=>$(id).disabled=(mode!=='recip'));
+  if(mode==='real'){
+    const a=num('a'),b=num('b'),c=num('c');
+    const al=num('alpha')*Math.PI/180, be=num('beta')*Math.PI/180, ga=num('gamma')*Math.PI/180;
+    const ca=Math.cos(al),cb=Math.cos(be),cg=Math.cos(ga),sa=Math.sin(al),sb=Math.sin(be);
+    const V=a*b*c*Math.sqrt(Math.max(0,1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg));
+    if(V>0){
+      $('astar').value=(2*Math.PI*b*c*sa/V).toFixed(4);
+      $('bstar').value=(2*Math.PI*a*c*sb/V).toFixed(4);
+      $('cgs').value=((ca*cb-cg)/(sa*sb)).toFixed(4);
+    }
+  } else {   // reciprocal → real (in-plane: α=β=90; γ=180−γ*; c kept as-is)
+    const as=num('astar'), bs=num('bstar');
+    let cgs=num('cgs'); cgs=Math.max(-0.999, Math.min(0.999, cgs));
+    const sgs=Math.sqrt(1-cgs*cgs);
+    if(as>0 && bs>0 && sgs>1e-6){
+      $('a').value=(2*Math.PI/(as*sgs)).toFixed(4);
+      $('b').value=(2*Math.PI/(bs*sgs)).toFixed(4);
+      $('alpha').value='90'; $('beta').value='90';
+      $('gamma').value=(180-Math.acos(cgs)*180/Math.PI).toFixed(3);
+    }
+  }
 }
 // Fixed-energy presets → k = sqrt(E/2.07214).
-function setEfix(){ $('kfix').value=Math.sqrt(num('efix')/2.07214).toFixed(4); updateRecip(); scheduleEval(); }
+function setEfix(){ $('kfix').value=Math.sqrt(num('efix')/2.07214).toFixed(4); scheduleEval(); }
 
 // Keep Plotly's internal size in sync with the container. Without this, a layout
 // reflow (e.g. a scrollbar appearing after Evaluate shrinks the plot ~15px) leaves
@@ -483,9 +511,10 @@ function renderSummary(res){
   if(nd) s += ` &nbsp; <span class="bad">⌫ ${nd} dropped (auto-fit · outside reachable region)</span>`;
   if(res.n_lines > 40){ const nb=Math.ceil(res.n_lines/40);
     s += ` &nbsp; <span style="color:var(--mut)">→ ${nb} GO blocks of ≤40 (NS restarts each block)</span>`; }
-  // estimated time: monitor 5000 cts/s (MN×0.2 s/point) + 10 s motor move per point.
-  const secs = res.n_reachable * (Math.round(num('mon'))*0.2 + 10);
-  s += ` &nbsp; <span style="color:var(--mut)" title="MN×0.2 s count (5000 cts/s) + 10 s motor move, per reachable point">⏱ est. ${fmtDur(secs)}</span>`;
+  // estimated time per reachable point: MN/MON s counting + 10 s motor move.
+  const rate=Math.max(num('mrate'),1e-6);
+  const secs = res.n_reachable * (num('mon')/rate + 10);
+  s += ` &nbsp; <span style="color:var(--mut)" title="MN/MON s count + 10 s motor move, per reachable point">⏱ est. ${fmtDur(secs)}</span>`;
   $('summary').innerHTML = s;
 }
 function fmtDur(s){
@@ -712,9 +741,9 @@ function scheduleEval(){
 }
 (function initLive(){
   const left=document.querySelector('.left');
-  left.addEventListener('input', ()=>{ updateRecip(); scheduleEval(); });   // typing
+  left.addEventListener('input', ()=>{ updateLattice(); scheduleEval(); });   // typing
   left.addEventListener('change', scheduleEval);   // selects / radios / checkboxes
-  updateRecip();
+  updateLattice();
   if(inputsValid()) runEvaluate();                 // populate immediately on load
 })();
 
