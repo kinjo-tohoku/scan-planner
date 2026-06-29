@@ -38,7 +38,10 @@
   button.sec { background:#21262d; color:var(--ink); border:1px solid var(--line); }
   button:hover { filter:brightness(1.1); }
   .btns { display:flex; gap:8px; flex-wrap:wrap; }
-  .summary { font-size:14px; margin:0 0 8px; }
+  .summary { font-size:14px; margin:10px 0 6px; }
+  .esttime { font-size:16px; margin:2px 0 12px; padding:7px 11px; border-left:3px solid var(--acc);
+             background:rgba(88,166,255,0.10); border-radius:5px; }
+  .esttime b { font-size:20px; color:var(--acc); }
   .ok { color:var(--grn); } .bad { color:var(--red); }
   table { width:100%; border-collapse:collapse; font:11px monospace; }
   th,td { text-align:right; padding:2px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
@@ -315,6 +318,7 @@
   <div class="right">
     <div class="card">
       <div id="summary" class="summary">&mdash; not evaluated yet &mdash;</div>
+      <div id="esttime" class="esttime" style="display:none"></div>
       <div id="plot"></div>
     </div>
     <div class="card">
@@ -601,11 +605,14 @@ function renderSummary(res){
   if(nd) s += ` &nbsp; <span class="bad">⌫ ${nd} dropped (auto-fit · outside reachable region)</span>`;
   if(res.n_lines > 40){ const nb=Math.ceil(res.n_lines/40);
     s += ` &nbsp; <span style="color:var(--mut)">→ ${nb} GO blocks of ≤40 (NS restarts each block)</span>`; }
-  // estimated time per reachable point: MN/MON s counting + 10 s motor move.
+  $('summary').innerHTML = s;
+  // estimated measurement time, shown prominently on its own line below the summary.
   const rate=Math.max(num('mrate'),1e-6);
   const secs = res.n_reachable * (num('mon')/rate + 10);
-  s += ` &nbsp; <span style="color:var(--mut)" title="MN/MON s count + 10 s motor move, per reachable point">⏱ est. ${fmtDur(secs)}</span>`;
-  $('summary').innerHTML = s;
+  const et=$('esttime');
+  if(et){ et.style.display='';
+    et.innerHTML = `⏱ estimated total <b>${fmtDur(secs)}</b>`
+      + ` <span style="color:var(--mut);font-size:13px">· ${res.n_reachable} reachable pts × (MN/MON + 10 s move)</span>`; }
 }
 function fmtDur(s){
   s=Math.round(s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), sec=s%60;
