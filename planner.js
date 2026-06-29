@@ -649,10 +649,10 @@
       var k = chunk.length;
       L.push(k === 1 ? "GO 1" : "GO 1-" + k);
     }
-    var oop = scans.some(function (ln) { return Math.abs(ln.start[2]) > 1e-6; })
-      || Math.abs(+md.step[2]) > 1e-6 || Math.abs(+md.outer[2]) > 1e-6;
-    if (oop)
-      L.push('" NOTE: l!=0 leaves the in-plane assumption (out-of-plane is unreachable)');
+    var spec = build(cfg).spec;          // out-of-plane test against the actual plane normal
+    function oopc(hkl) { var Q = matVec(spec.B, [+hkl[0], +hkl[1], +hkl[2]]); return Math.abs(dot(Q, spec.n)); }
+    if (oopc(md.start) > 1e-4 || oopc(md.step) > 1e-4 || oopc(md.outer) > 1e-4)
+      L.push('" NOTE: scan leaves the scattering plane (out-of-plane points are unreachable)');
     return L.join("\n");
   }
 
@@ -663,6 +663,7 @@
     check_point: function (cfg, hkl, e) { var b = build(cfg); return checkPoint(b.spec, b.limits, hkl, e); },
     evaluate: evaluate, grid: grid, gridQ: gridQ, reflections: reflections,
     satellites: satellites, brillouinZone: brillouinZone, resolution: resolution, qeAlong: qeAlong,
+    qxy: function (cfg, hkl) { var b = build(cfg); return qd(b.spec, hkl); },
     to_scn: to_scn, evaluate_map: evaluate_map, map_to_scn: map_to_scn
   };
 
