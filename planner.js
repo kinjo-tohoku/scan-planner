@@ -458,16 +458,22 @@
   // [FWHM_1, FWHM_2, tilt_deg]. Qplane = (Q∥,Q⊥); QEplane = (Q∥,E).
   function ellipseParams(RM) {
     var F = 1.0 / Math.sqrt(8.0 * Math.log(2.0)), out = {};
-    function proj(a, b, ab, ac, bc, cc) {   // project out the 3rd axis (cc)
+    function proj(a, b, ab, ac, bc, cc) {   // project out the 3rd axis (cc) → integrated
       var AP = a - ac * ac / cc, B = b - bc * bc / cc, C = ac * bc / cc - ab;
       var V = 0.5 * Math.atan2(-2 * C, AP - B), c2 = Math.cos(V), s2 = Math.sin(V), sd = Math.sin(2 * V);
       return [1 / Math.sqrt(AP * c2 * c2 + B * s2 * s2 - C * sd) / F,
               1 / Math.sqrt(AP * s2 * s2 + B * c2 * c2 + C * sd) / F, V * 180 / Math.PI];
     }
-    // Qplane: axes 0,1 ; integrate axis 2 (E)
+    function slc(a, b, ab) {                  // slice (3rd axis = 0) → cross-section
+      var V = 0.5 * Math.atan2(2 * ab, a - b), c2 = Math.cos(V), s2 = Math.sin(V), sd = Math.sin(2 * V);
+      return [1 / Math.sqrt(a * c2 * c2 + b * s2 * s2 + ab * sd) / F,
+              1 / Math.sqrt(a * s2 * s2 + b * c2 * c2 - ab * sd) / F, V * 180 / Math.PI];
+    }
+    // Qplane = (Q∥,Q⊥) integrating/cutting E ; QEplane = (Q∥,E) integrating/cutting Q⊥
     out.Qplane = proj(RM[0][0], RM[1][1], RM[0][1], RM[0][2], RM[1][2], RM[2][2]);
-    // QEplane: axes 0,2 ; integrate axis 1 (Q⊥)
+    out.Qplane_slice = slc(RM[0][0], RM[1][1], RM[0][1]);
     out.QEplane = proj(RM[0][0], RM[2][2], RM[0][2], RM[0][1], RM[1][2], RM[1][1]);
+    out.QEplane_slice = slc(RM[0][0], RM[2][2], RM[0][2]);
     return out;
   }
 

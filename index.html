@@ -215,8 +215,14 @@
 
     <div class="card">
       <h2 title="Cooper-Nathans (FIT3AX). Instrument constants from 4G_O_foc_3foc_slit.d.">Resolution</h2>
-      <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)">
-        <input type="checkbox" id="showreso" checked onchange="scheduleEval()" style="width:auto"> show ellipse (scan centre)</label>
+      <div class="row" style="align-items:center;gap:10px">
+        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)">
+          <input type="checkbox" id="showreso" checked onchange="scheduleEval()" style="width:auto"> show ellipse (scan centre)</label>
+        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)" title="slice = ellipsoid cross-section (const-E/const-Q scan); projection = energy-integrated broadening">
+          <select id="resmode" onchange="scheduleEval()" style="width:auto">
+            <option value="slice" selected>slice</option><option value="proj">projection</option>
+          </select></label>
+      </div>
       <div class="grid g4" style="margin-top:6px">
         <label title="α1 in-pile (before mono), FWHM [min]">&alpha;1<input id="c1" value="30" oninput="scheduleEval()"></label>
         <label title="α2 mono–sample [min]">&alpha;2<input id="c2" value="90" oninput="scheduleEval()"></label>
@@ -554,8 +560,11 @@ function computeReso(pts){
   if(!rp.length) return;
   const c=rp[Math.floor(rp.length/2)];
   const ell=Planner.resolution(getConfig(), c.q, c.E, getCollim());
-  if(ell) lastReso={qx:c.qx, qy:c.qy, h:c.h, k:c.k, q:c.q, E:c.E, Qplane:ell.Qplane, QEplane:ell.QEplane};
+  if(ell) lastReso=Object.assign({qx:c.qx, qy:c.qy, h:c.h, k:c.k, q:c.q, E:c.E}, ell);
 }
+// projection (integrate the 3rd axis = what an integrated measurement sees) vs
+// slice (3rd axis = 0 = the ellipsoid cross-section seen in a const-E / const-Q scan).
+function resMode(){ const el=$('resmode'); return el && el.value==='proj' ? 'proj' : 'slice'; }
 function renderSummary(res){
   const bad = res.n_total - res.n_reachable;
   const nd = res.dropped ? res.dropped.length : 0;   // auto-fit removed these before counting
@@ -642,22 +651,24 @@ function ellipseBoundary(cx,cy,w,h,angDeg,n){
   return {x,y};
 }
 function resoTrace(traces){
-  if(!lastReso || !lastReso.Qplane) return;
-  const w=lastReso.Qplane[0], h=lastReso.Qplane[1], ang=lastReso.Qplane[2];
-  const phi=Math.atan2(lastReso.qy,lastReso.qx)*180/Math.PI;
+  const ell = lastReso && (resMode()==='proj' ? lastReso.Qplane : lastReso.Qplane_slice);
+  if(!ell) return;
+  const w=ell[0], h=ell[1], ang=ell[2];
+  const phi=Math.atan2(lastReso.qy,lastReso.qx)*180/Math.PI;   // Q∥ azimuth → lab frame
   const e=ellipseBoundary(lastReso.qx,lastReso.qy,w,h,phi+ang);
   traces.push({x:e.x, y:e.y, mode:'lines', name:'resolution', hoverinfo:'text',
-    text:`FWHM ΔQ∥=${w.toFixed(3)}, ΔQ⊥=${h.toFixed(3)} Å⁻¹ @ E=${lastReso.E}`,
+    text:`resolution FWHM ${w.toFixed(3)} × ${h.toFixed(3)} Å⁻¹ (${resMode()}) @ E=${lastReso.E}`,
     line:{color:'rgba(255,180,60,0.95)', width:2}});
 }
 // Resolution ellipse on the dispersion (swept Q, E) plane → focusing check. The
 // QEplane (ΔQ∥[Å⁻¹], ΔE[meV]) ellipse has its Q∥ axis converted to the swept r.l.u.
 // axis by the reciprocal length (a* or b*), so the tilt vs the dispersion is shown.
 function resoTraceQE(traces, xk){
-  if(!lastReso || !lastReso.QEplane || lastReso[xk]===undefined) return;
+  const ell = lastReso && (resMode()==='proj' ? lastReso.QEplane : lastReso.QEplane_slice);
+  if(!ell || lastReso[xk]===undefined) return;
   const conv = xk==='k' ? num('bstar') : num('astar');
   if(!(conv>0)) return;
-  const w=lastReso.QEplane[0], h=lastReso.QEplane[1], ang=lastReso.QEplane[2];
+  const w=ell[0], h=ell[1], ang=ell[2];
   const cx=lastReso[xk], cy=lastReso.E, a=w/2, b=h/2, th=ang*Math.PI/180, ct=Math.cos(th), st=Math.sin(th);
   const xs=[],ys=[];
   for(let i=0;i<=64;i++){ const t=2*Math.PI*i/64, ex=a*Math.cos(t), ey=b*Math.sin(t);
