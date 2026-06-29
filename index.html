@@ -356,6 +356,9 @@
 <script>
 const $ = id => document.getElementById(id);
 const num = id => parseFloat($(id).value);
+// reduce-based min/max — Math.max(...arr) spreads and overflows the stack on large maps.
+const amax = a => a.reduce((m,x)=>x>m?x:m, -Infinity);
+const amin = a => a.reduce((m,x)=>x<m?x:m, Infinity);
 let lastGrid = null;
 let lastRefl = null;   // in-plane Bragg reflections (Qx,Qy markers)
 let lastSat = null;    // magnetic satellites G±k_m
@@ -416,7 +419,7 @@ function getConfig() {
     plane_u:[num('uh'),num('uk'),num('ul')], plane_v:[num('vh'),num('vk'),num('vl')],
     centering:$('centering').value, km:[num('kmh'),num('kmk'),num('kml')],
     // C2 = user soft limit; A1 (mono 2θ) and A2 (sample 2θ) are internal hard limits.
-    limits:{ C2:[num('C2lo'),num('C2hi')], A2:[5,110], A1:[18,53] }
+    limits:{ C2:[Number.isFinite(num('C2lo'))?num('C2lo'):-180, Number.isFinite(num('C2hi'))?num('C2hi'):180], A2:[5,110], A1:[18,53] }
   };
 }
 // NP from start/end/|Δ| on the swept axes. Δ is a step MAGNITUDE; the scan runs
@@ -529,7 +532,7 @@ function getMap(){
 // Standalone build: no backend. The computation runs locally via planner.js
 // (Planner.*), returning the same JSON shapes the server endpoints used, so all
 // the rendering/plotting code below is unchanged. async kept for API parity.
-const MAX_NPTS=2001, MAX_NLINES=2000, MAX_GRID_N=301;   // guard the user's own tab
+const MAX_NPTS=2001, MAX_NLINES=2000, MAX_GRID_N=301, MAX_MAP_PTS=80000;   // guard the user's own tab
 const clampi=(v,lo,hi)=>Math.max(lo,Math.min(hi,Math.round(v)));
 async function api(path, body){
   const P = window.Planner;
@@ -556,15 +559,14 @@ async function api(path, body){
     body.scan.npts = clampi(body.scan.npts||1, 1, MAX_NPTS);
     return { scn: P.to_scn(body.config, body.scan, body.scan_no||1) };
   }
-  if(ep==='map'){
+  if(ep==='map' || ep==='map_export'){
     body.map.npts = clampi(body.map.npts||1, 1, MAX_NPTS);
     body.map.nlines = clampi(body.map.nlines||1, 1, MAX_NLINES);
-    return P.evaluate_map(body.config, body.map, !!body.map.trim);
-  }
-  if(ep==='map_export'){
-    body.map.npts = clampi(body.map.npts||1, 1, MAX_NPTS);
-    body.map.nlines = clampi(body.map.nlines||1, 1, MAX_NLINES);
-    return { scn: P.map_to_scn(body.config, body.map, !!body.map.trim) };
+    if(body.map.npts*body.map.nlines > MAX_MAP_PTS)
+      throw new Error(`map too large: ${body.map.npts}×${body.map.nlines} = ${body.map.npts*body.map.nlines} points (max ${MAX_MAP_PTS}) — increase Δ or reduce the extent`);
+    return ep==='map'
+      ? P.evaluate_map(body.config, body.map, !!body.map.trim)
+      : { scn: P.map_to_scn(body.config, body.map, !!body.map.trim) };
   }
   throw new Error('unknown endpoint: '+ep);
 }
@@ -677,7 +679,7 @@ function hkAxes(xs, ys, xt, yt){
   const X=xs.filter(isFinite), Y=ys.filter(isFinite);
   let cx=0, cy=0, half=1;
   if(X.length && Y.length){
-    const xmin=Math.min(...X), xmax=Math.max(...X), ymin=Math.min(...Y), ymax=Math.max(...Y);
+    const xmin=amin(X), xmax=amax(X), ymin=amin(Y), ymax=amax(Y);
     cx=(xmin+xmax)/2; cy=(ymin+ymax)/2;
     half=Math.max(xmax-xmin, ymax-ymin)/2 * 1.06;
     if(!isFinite(half) || half<1e-6) half=1;
@@ -765,7 +767,7 @@ function reflTrace(traces){
   }
 }
 function plot(pts){
-  const span=c=>{const v=pts.map(p=>p[c]); return Math.max(...v)-Math.min(...v);};
+  const span=c=>{const v=pts.map(p=>p[c]); return amax(v)-amin(v);};
   const vH=span('h')>1e-9, vK=span('k')>1e-9, vE=span('E')>1e-9;
   if((vH||vK) && !vE) plotHK(pts);                       // Q-scan (const E) → (h,k) plane
   else plot1D(pts, vE?'E':(vH?'h':(vK?'k':'E')));        // energy/mixed → x = swept amount
@@ -794,7 +796,7 @@ function plotHK(pts){
   resoTrace(traces);
   const ax = hkAxes(lastGrid?lastGrid.qx:pts.map(p=>p.qx),
                     lastGrid?lastGrid.qy:pts.map(p=>p.qy), 'Qx [Å⁻¹]', 'Qy [Å⁻¹]');
-  Plotly.newPlot('plot',traces,Object.assign({},PLOT_BASE,ax),PLOT_CFG);
+  Plotly.react('plot',traces,Object.assign({},PLOT_BASE,ax),PLOT_CFG);
 }
 
 function plot1D(pts, axis){
@@ -812,11 +814,11 @@ function plot1D(pts, axis){
     {x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
      marker:{color:'#f85149',size:10,symbol:'x'}}
   ];
-  const xs=pts.map(p=>p[axis]), xmin=Math.min(...xs), xmax=Math.max(...xs);
+  const xs=pts.map(p=>p[axis]), xmin=amin(xs), xmax=amax(xs);
   const lim=getConfig().limits.A2;
   lim.forEach(L=> traces.push({x:[xmin,xmax],y:[L,L],mode:'lines',name:'A2 limit',
     line:{color:'#f85149',width:1,dash:'dot'}, hoverinfo:'skip', showlegend:false}));
-  Plotly.newPlot('plot',traces,Object.assign({},PLOT_BASE,{
+  Plotly.react('plot',traces,Object.assign({},PLOT_BASE,{
     xaxis:{title:axis+(axis==='E'?' [meV]':''), gridcolor:'#30363d', zerolinecolor:'#444'},
     yaxis:{title:'A2 scattering 2θ [°] (red dotted = limit)', gridcolor:'#30363d', zerolinecolor:'#444'}
   }),PLOT_CFG);
@@ -825,7 +827,7 @@ function plot1D(pts, axis){
 function plotMap(lines, dropped){
   // Scatter all points. If E is constant → (h,k) plane, else → (swept Q, E) plane.
   const all=[]; lines.forEach(ln=>ln.points.forEach(p=>all.push(p)));
-  const span=c=>{const v=all.map(p=>p[c]); return Math.max(...v)-Math.min(...v);};
+  const span=c=>{const v=all.map(p=>p[c]); return amax(v)-amin(v);};
   const vE=span('E')>1e-9;
   // const-E → (Qx,Qy) [Å⁻¹] plane; dispersion → (ξ along the swept in-plane dir, E).
   const bg=!vE;
@@ -867,7 +869,7 @@ function plotMap(lines, dropped){
       xaxis:{title:xlabel, gridcolor:'#30363d', zerolinecolor:'#444'},
       yaxis:{title:ylabel, gridcolor:'#30363d', zerolinecolor:'#444'}});
   }
-  Plotly.newPlot('plot',traces,layout,PLOT_CFG);
+  Plotly.react('plot',traces,layout,PLOT_CFG);
 }
 async function runEvaluate(){
   // One action: compute the reachable-region background (in Qx,Qy), then evaluate

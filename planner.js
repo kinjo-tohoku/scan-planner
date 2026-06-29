@@ -67,8 +67,9 @@
     var ga = rad(cfg.gamma == null ? 90 : +cfg.gamma);
     var ca = Math.cos(al), cb = Math.cos(be), cg = Math.cos(ga);
     var sa = Math.sin(al), sb = Math.sin(be), sg = Math.sin(ga);
-    var V = a * b * c * Math.sqrt(Math.max(0.0,
-      1.0 - ca * ca - cb * cb - cg * cg + 2.0 * ca * cb * cg));
+    var disc = 1.0 - ca * ca - cb * cb - cg * cg + 2.0 * ca * cb * cg;
+    if (!(disc > 1e-12)) throw new Error("lattice angles are geometrically impossible (cell volume ≤ 0)");
+    var V = a * b * c * Math.sqrt(disc);
     var astar = TWO_PI * b * c * sa / V;
     var bstar = TWO_PI * a * c * sb / V;
     var cstar = TWO_PI * a * b * sg / V;
@@ -90,12 +91,12 @@
     var u = matVec(B, [+pu[0], +pu[1], +pu[2]]);
     var v = matVec(B, [+pv[0], +pv[1], +pv[2]]);
     var nu = norm(u);
-    if (nu < 1e-9) throw new Error("plane_u must be a non-zero reflection");
+    if (!(nu >= 1e-9)) throw new Error("scattering plane: u must be a non-zero reflection");
     var e1 = [u[0] / nu, u[1] / nu, u[2] / nu];
     var vd = dot(v, e1);
     var vp = [v[0] - vd * e1[0], v[1] - vd * e1[1], v[2] - vd * e1[2]];
     var nv = norm(vp);
-    if (nv < 1e-9) throw new Error("plane_u and plane_v are parallel (no plane)");
+    if (!(nv >= 1e-9)) throw new Error("scattering plane: v must be non-zero and not parallel to u");
     var e2 = [vp[0] / nv, vp[1] / nv, vp[2] / nv];
     var n = cross(e1, e2);
     return {
@@ -544,24 +545,38 @@
       + " fixed-" + (cfg.fixed || "kf") + "=" + cfg.kfix
       + " ana=" + anaName(+cfg.d_ana);
   }
-  function scanLine(no, start, step, npts, monitor, nt) {
-    var h0 = +start[0], k0 = +start[1], e0 = +start[3];
-    var dh = +step[0], dk = +step[1], de = +step[3];
-    var f = ["NS=" + (no | 0), "HS=" + gfmt(h0), "KS=" + gfmt(k0), "ES=" + gfmt(e0),
-             "DE=" + gfmt(de), "DH=" + gfmt(dh), "DK=" + gfmt(dk),
+  // Express a Miller vector in the scattering-plane basis (u,v): P ≈ ξu·u + ξv·v.
+  // filman specifies scans in these in-plane coordinates (HS along u, KS along v), NOT raw
+  // Miller h,k. 2×2 Gram solve; exact for in-plane P (out-of-plane parts are projected out).
+  // Default u=(100),v=(010) → ξu=h, ξv=k, so the usual h×k output is unchanged.
+  function planeCoords(u, v, P) {
+    var uu = dot(u, u), vv = dot(v, v), uv = dot(u, v);
+    var det = uu * vv - uv * uv;
+    if (!(Math.abs(det) > 1e-12)) return [+P[0], +P[1]];     // degenerate basis → raw h,k
+    var up = u[0]*P[0] + u[1]*P[1] + u[2]*P[2];
+    var vp = v[0]*P[0] + v[1]*P[1] + v[2]*P[2];
+    return [(up*vv - vp*uv)/det, (vp*uu - up*uv)/det];
+  }
+  function scanLine(no, start, step, npts, monitor, nt, u, v) {
+    u = u || [1, 0, 0]; v = v || [0, 1, 0];
+    var s = planeCoords(u, v, start), d = planeCoords(u, v, step);
+    var f = ["NS=" + (no | 0), "HS=" + gfmt(s[0]), "KS=" + gfmt(s[1]), "ES=" + gfmt(+start[3]),
+             "DE=" + gfmt(+step[3]), "DH=" + gfmt(d[0]), "DK=" + gfmt(d[1]),
              "NP=" + (npts | 0), "MN=" + (monitor | 0)];
     if ((nt | 0) > 0) f.push("NT=" + (nt | 0));
     return f.join(",");
   }
   function to_scn(cfg, scan, scan_no) {
     scan_no = scan_no || 1;
-    var l0 = +scan.start[2], dl = +scan.step[2];
+    var u = cfg.plane_u || [1, 0, 0], v = cfg.plane_v || [0, 1, 0];
+    var spec = build(cfg).spec;
+    function oopc(P) { var Q = matVec(spec.B, [+P[0], +P[1], +P[2]]); return Math.abs(dot(Q, spec.n)); }
     var L = [headerComment(cfg),
       scanLine(scan_no, scan.start, scan.step, scan.npts,
-        scan.monitor == null ? 10000 : scan.monitor, scan.nt || 0),
+        scan.monitor == null ? 10000 : scan.monitor, scan.nt || 0, u, v),
       "GO " + scan_no];
-    if (Math.abs(l0) > 1e-6 || Math.abs(dl) > 1e-6)
-      L.push('" NOTE: l!=0 leaves the in-plane assumption (out-of-plane is unreachable)');
+    if (oopc(scan.start) > 1e-4 || oopc(scan.step) > 1e-4)
+      L.push('" NOTE: scan leaves the scattering plane; its out-of-plane part is not in the .scn and is unreachable');
     return L.join("\n");
   }
 
@@ -634,6 +649,7 @@
     return res;
   }
   function map_to_scn(cfg, md, trim) {
+    var u = cfg.plane_u || [1, 0, 0], v = cfg.plane_v || [0, 1, 0];
     var scans = mapScans(cfg, md, trim), n = scans.length;
     var L = [headerComment(cfg, "map " + n + " lines: ")];
     if (n === 0) { L.push('" no reachable points; revise the range'); return L.join("\n"); }
@@ -645,7 +661,7 @@
       var chunk = scans.slice(c0, c0 + CHUNK);
       for (var i = 0; i < chunk.length; i++)
         L.push(scanLine(i + 1, chunk[i].start, chunk[i].step, chunk[i].npts,
-          chunk[i].monitor, chunk[i].nt));
+          chunk[i].monitor, chunk[i].nt, u, v));
       var k = chunk.length;
       L.push(k === 1 ? "GO 1" : "GO 1-" + k);
     }
