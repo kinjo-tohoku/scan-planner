@@ -214,6 +214,19 @@
     </div>
 
     <div class="card">
+      <h2 title="Cooper-Nathans (FIT3AX). Instrument constants from 4G_O_foc_3foc_slit.d.">Resolution</h2>
+      <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)">
+        <input type="checkbox" id="showreso" checked onchange="scheduleEval()" style="width:auto"> show ellipse (scan centre)</label>
+      <div class="grid g4" style="margin-top:6px">
+        <label title="α1 in-pile (before mono), FWHM [min]">&alpha;1<input id="c1" value="30" oninput="scheduleEval()"></label>
+        <label title="α2 mono–sample [min]">&alpha;2<input id="c2" value="90" oninput="scheduleEval()"></label>
+        <label title="α3 sample–analyzer [min]">&alpha;3<input id="c3" value="100" oninput="scheduleEval()"></label>
+        <label title="α4 analyzer–detector [min]">&alpha;4<input id="c4" value="90" oninput="scheduleEval()"></label>
+      </div>
+      <div class="hint" id="resohint" style="margin-top:4px">collimations [min]; ellipse = projection on the scattering plane</div>
+    </div>
+
+    <div class="card">
       <h2 title="Only the sample motors are limit-checked; C1/A1 (mono) and C3/A3 (ana) are fixed by kf">Sample motor soft limits [&deg;]</h2>
       <div class="grid">
         <label title="Sample rotation ω lower limit [°]">C2 (&omega;) lo<input id="C2lo" value="-180"></label><label title="Sample rotation ω upper limit [°]">C2 (&omega;) hi<input id="C2hi" value="180"></label>
@@ -312,6 +325,7 @@ let lastGrid = null;
 let lastRefl = null;   // in-plane Bragg reflections (Qx,Qy markers)
 let lastSat = null;    // magnetic satellites G±k_m
 let lastBZ = null;     // 1st Brillouin zone polygon
+let lastReso = null;   // resolution ellipse at the scan centre
 
 function toggleHelp(open){ $('help').classList.toggle('open', open); }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') toggleHelp(false); });
@@ -494,11 +508,25 @@ function showErr(e){ $('err').textContent = e ? ('⚠ '+e) : ''; }
 async function evalScan(){
   if(isMap()){
     const res = await api('/api/map',{config:getConfig(), map:getMap()});
+    computeReso(res.lines.flatMap(l=>l.points));
     renderSummary(res); renderMapTable(res.lines); plotMap(res.lines, res.dropped);
   } else {
     const res = await api('/api/evaluate',{config:getConfig(), scan:getScan()});
+    computeReso(res.points);
     renderSummary(res); renderTable(res.points); plot(res.points);
   }
+}
+function getCollim(){ return {a1:num('c1'),a2:num('c2'),a3:num('c3'),a4:num('c4')}; }
+// Resolution ellipse at the central reachable point (Cooper-Nathans, local engine).
+function computeReso(pts){
+  lastReso=null;
+  if(!$('showreso') || !$('showreso').checked) return;
+  if(typeof Planner==='undefined' || !Planner.resolution) return;   // server build skips
+  const rp=(pts||[]).filter(p=>p.reachable && p.q>1e-6);
+  if(!rp.length) return;
+  const c=rp[Math.floor(rp.length/2)];
+  const ell=Planner.resolution(getConfig(), c.q, c.E, getCollim());
+  if(ell) lastReso={qx:c.qx, qy:c.qy, q:c.q, E:c.E, Qplane:ell.Qplane, QEplane:ell.QEplane};
 }
 function renderSummary(res){
   const bad = res.n_total - res.n_reachable;
@@ -577,6 +605,23 @@ function hkAxes(xs, ys, xt, yt){
   };
 }
 
+// Resolution ellipse (FWHM) drawn on the (Qx,Qy) plane at the scan centre. The
+// Qplane ellipse is in the (Q∥,Q⊥) frame, rotated by the Q azimuth φ into (Qx,Qy).
+function ellipseBoundary(cx,cy,w,h,angDeg,n){
+  n=n||64; const a=w/2,b=h/2,th=angDeg*Math.PI/180,ct=Math.cos(th),st=Math.sin(th),x=[],y=[];
+  for(let i=0;i<=n;i++){ const t=2*Math.PI*i/n, ex=a*Math.cos(t), ey=b*Math.sin(t);
+    x.push(cx+ex*ct-ey*st); y.push(cy+ex*st+ey*ct); }
+  return {x,y};
+}
+function resoTrace(traces){
+  if(!lastReso || !lastReso.Qplane) return;
+  const w=lastReso.Qplane[0], h=lastReso.Qplane[1], ang=lastReso.Qplane[2];
+  const phi=Math.atan2(lastReso.qy,lastReso.qx)*180/Math.PI;
+  const e=ellipseBoundary(lastReso.qx,lastReso.qy,w,h,phi+ang);
+  traces.push({x:e.x, y:e.y, mode:'lines', name:'resolution', hoverinfo:'text',
+    text:`FWHM ΔQ∥=${w.toFixed(3)}, ΔQ⊥=${h.toFixed(3)} Å⁻¹ @ E=${lastReso.E}`,
+    line:{color:'rgba(255,180,60,0.95)', width:2}});
+}
 // Overlays on the (Qx,Qy) plane: 1st Brillouin zone, nuclear Bragg reflections,
 // and magnetic satellites G±k_m.
 function reflTrace(traces){
@@ -625,6 +670,7 @@ function plotHK(pts){
     marker:{color:'#2ea043',size:9,line:{color:'#fff',width:0.5}}});
   traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
     marker:{color:'#f85149',size:10,symbol:'x'}});
+  resoTrace(traces);
   const ax = hkAxes(lastGrid?lastGrid.qx:pts.map(p=>p.qx),
                     lastGrid?lastGrid.qy:pts.map(p=>p.qy), 'Qx [Å⁻¹]', 'Qy [Å⁻¹]');
   Plotly.newPlot('plot',traces,Object.assign({},PLOT_BASE,ax),PLOT_CFG);
@@ -685,6 +731,7 @@ function plotMap(lines, dropped){
     marker:{color:'#2ea043',size:8,line:{color:'#fff',width:0.5}}});
   traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
     marker:{color:'#f85149',size:9,symbol:'x'}});
+  if(bg) resoTrace(traces);
   const lab=k=>k+(k==='E'?' [meV]':'');
   let layout;
   if(bg){   // const-E plane → centered square (Qx,Qy) with true aspect

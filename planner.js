@@ -393,6 +393,104 @@
     return poly.map(function (p) { return [r4(p[0]), r4(p[1])]; });
   }
 
+  // === resolution (Cooper-Nathans, port of resolution_reduced_grobal.RESELP) ===
+  // arcmin FWHM → radian σ  (TASIN DEGRAD): π/180 / sqrt(8 ln2) / 60
+  var DEGRAD = Math.PI / 180.0 / Math.sqrt(8.0 * Math.log(2.0)) / 60.0;
+
+  // Resolution matrix RM (3×3, frame Q∥,Q⊥,E) for |Q| and energy transfer E0.
+  // p: {AKI, TM, TA, ALZ,ALM,ALA,AL3, VBETZ,VBET1,VBET2,VBET3, ETAM,ETAA,ETAS (all
+  // already in radian σ), EPM, EP, ERL, IR1}. Returns null if geometry impossible.
+  function resMatrix(Q, E0, p) {
+    var F = 1.0 / 2.072, AOM = E0 * F;
+    var AKI = p.AKI, AKF;
+    if (AKI < 0.0) { AKF = -AKI; var t = AKI * AKI + AOM; if (t < 0) return null; AKI = Math.sqrt(t); }
+    else { var t2 = AKI * AKI - AOM; if (t2 < 0) return null; AKF = Math.sqrt(t2); }
+    var ALAM = AKI / AKF;
+    var BE = -(Q * Q - 2.0 * AKI * AKI + AOM) / (2.0 * AKI * AKF);
+    if (1 - BE * BE < 0) return null; var AL = Math.sqrt(1 - BE * BE);
+    var B = -(Q * Q - AOM) / (2.0 * Q * AKF);
+    if (1 - B * B < 0) return null; var AA = Math.sqrt(1 - B * B);
+    var ALP = [B / AL, -AA / AL, 1.0 / (AL * 2.0 * AKF)];
+    var SB = (Q * Q + AOM) / (2.0 * Q * AKI);
+    if (1 - SB * SB < 0) return null; var SA = Math.sqrt(1 - SB * SB);
+    var BET = [SB / AL, -SA / AL, BE / (AL * 2.0 * AKF)];
+    var GAM = [0.0, 0.0, -1.0 / (2.0 * AKF)];
+    var tm2 = AKI * AKI - (p.TM / 2) * (p.TM / 2), ta2 = AKF * AKF - (p.TA / 2) * (p.TA / 2);
+    if (tm2 <= 0 || ta2 <= 0) return null;
+    var TOM = p.TM / (2.0 * Math.sqrt(tm2)) * p.EPM;
+    var TOA = (p.EP * p.TA / 2.0) / Math.sqrt(ta2);
+    var A1 = TOM / (AKI * p.ETAM), A2 = 1.0 / (AKI * p.ETAM), A3 = 1.0 / (AKI * p.ALM),
+        A4 = 1.0 / (AKF * p.ALA), A5 = TOA / (AKF * p.ETAA), A6 = -1.0 / (AKF * p.ETAA),
+        A7 = 2.0 * TOM / (AKI * p.ALZ), A8 = 1.0 / (AKI * p.ALZ),
+        A9 = 2.0 * TOA / (p.AL3 * AKF), A10 = -1.0 / (p.AL3 * AKF);
+    if (p.IR1 === 1) { A6 = 0; A9 = 0; A10 = 0; }
+    var B0 = A1 * A2 + A7 * A8, B1 = A2 * A2 + A3 * A3 + A8 * A8,
+        B2 = A4 * A4 + A6 * A6 + A10 * A10, B3 = A5 * A5 + A9 * A9, B4 = A5 * A6 + A9 * A10;
+    var C = -(ALAM - BE) / AL, E = -(BE * ALAM - 1.0) / AL;
+    var AP = A1 * A1 + 2.0 * B0 * C + B1 * C * C + B2 * E * E + B3 * ALAM * ALAM + 2.0 * B4 * ALAM * E + A7 * A7;
+    var D0 = B1 - (B0 + B1 * C) * (B0 + B1 * C) / AP;
+    var D1 = B2 - (B2 * E + B4 * ALAM) * (B2 * E + B4 * ALAM) / AP;
+    var D2 = B3 - (B3 * ALAM + B4 * E) * (B3 * ALAM + B4 * E) / AP;
+    var D3 = 2.0 * B4 - 2.0 / AP * (B2 * E + B4 * ALAM) * (B3 * ALAM + B4 * E);
+    var D4 = -2.0 / AP * (B0 + B1 * C) * (B2 * E + B4 * ALAM);
+    var D5 = -2.0 / AP * (B0 + B1 * C) * (B3 * ALAM + B4 * E);
+    var A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (var i = 0; i < 3; i++) for (var j = 0; j < 3; j++) {
+      var v = D0 * ALP[i] * ALP[j] + D1 * BET[i] * BET[j] + D2 * GAM[i] * GAM[j]
+        + 0.5 * D3 * (BET[i] * GAM[j] + BET[j] * GAM[i])
+        + 0.5 * D4 * (ALP[i] * BET[j] + ALP[j] * BET[i])
+        + 0.5 * D5 * (ALP[i] * GAM[j] + ALP[j] * GAM[i]);
+      if (i === 2) v *= F; if (j === 2) v *= F;
+      A[i][j] = v;
+    }
+    var SNM = p.TM / (2.0 * AKI), SNA = p.TA / (2.0 * AKF);
+    var A11 = 1.0 / (Math.pow(2 * SNM * p.ETAM, 2) + p.VBETZ * p.VBETZ) / (AKI * AKI) + Math.pow(1 / p.VBET1 / AKI, 2);
+    var A12 = 1.0 / (Math.pow(2 * SNA * p.ETAA, 2) + p.VBET3 * p.VBET3) / (AKF * AKF) + Math.pow(1 / p.VBET2 / AKF, 2);
+    var GAMS = (Q * p.ETAS) * (Q * p.ETAS), DENOM = A[1][1] * GAMS + 1.0;
+    var RM = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (var ii = 0; ii < 3; ii++) for (var jj = 0; jj < 3; jj++)
+      RM[ii][jj] = A[ii][jj] - A[ii][1] * A[jj][1] * GAMS / DENOM;
+    if (p.ERL !== 1) { RM[0][1] = -RM[0][1]; RM[1][0] = -RM[1][0]; RM[2][1] = -RM[2][1]; RM[1][2] = -RM[1][2]; }
+    return RM;
+  }
+
+  // 2D ellipses from RM (projection = integrated over the other axis). Each value:
+  // [FWHM_1, FWHM_2, tilt_deg]. Qplane = (Q∥,Q⊥); QEplane = (Q∥,E).
+  function ellipseParams(RM) {
+    var F = 1.0 / Math.sqrt(8.0 * Math.log(2.0)), out = {};
+    function proj(a, b, ab, ac, bc, cc) {   // project out the 3rd axis (cc)
+      var AP = a - ac * ac / cc, B = b - bc * bc / cc, C = ac * bc / cc - ab;
+      var V = 0.5 * Math.atan2(-2 * C, AP - B), c2 = Math.cos(V), s2 = Math.sin(V), sd = Math.sin(2 * V);
+      return [1 / Math.sqrt(AP * c2 * c2 + B * s2 * s2 - C * sd) / F,
+              1 / Math.sqrt(AP * s2 * s2 + B * c2 * c2 + C * sd) / F, V * 180 / Math.PI];
+    }
+    // Qplane: axes 0,1 ; integrate axis 2 (E)
+    out.Qplane = proj(RM[0][0], RM[1][1], RM[0][1], RM[0][2], RM[1][2], RM[2][2]);
+    // QEplane: axes 0,2 ; integrate axis 1 (Q⊥)
+    out.QEplane = proj(RM[0][0], RM[2][2], RM[0][2], RM[0][1], RM[1][2], RM[1][1]);
+    return out;
+  }
+
+  // Build instrument params from cfg + collimations (arcmin) and return the ellipses
+  // for |Q| and energy transfer E. collim = {a1,a2,a3,a4} arcmin (ALZ,ALM,ALA,AL3).
+  // Fixed GPTAS constants from 4G_O_foc_3foc_slit_*.d. Returns null if impossible.
+  function resolution(cfg, Q, E, collim) {
+    collim = collim || {};
+    var c = function (v, d) { return (v > 0 ? v : d) * DEGRAD; };
+    var kfix = +cfg.kfix;
+    var p = {
+      AKI: (cfg.fixed === "ki" ? 1 : -1) * kfix,
+      TM: TWO_PI / (+cfg.d_mono), TA: TWO_PI / (+cfg.d_ana),
+      ALZ: c(+collim.a1, 30), ALM: c(+collim.a2, 90), ALA: c(+collim.a3, 100), AL3: c(+collim.a4, 90),
+      VBETZ: 10000 * DEGRAD, VBET1: 175 * DEGRAD, VBET2: 275 * DEGRAD, VBET3: 10000 * DEGRAD,
+      ETAM: 30 * DEGRAD, ETAA: 30 * DEGRAD, ETAS: 0 * DEGRAD,
+      EPM: 1, EP: 1, ERL: 1, IR1: 0
+    };
+    if (!(Q > 1e-6)) return null;
+    var RM = resMatrix(Q, E, p);
+    return RM ? ellipseParams(RM) : null;
+  }
+
   // --- .scn text generation ----------------------------------------------
   function gfmt(x) {                 // mimic Python's %g for scan coordinates
     x = +x;
@@ -529,7 +627,7 @@
     build: build, anglesRaw: function (cfg, hkl, e) { return angles(buildSpec(cfg), hkl, e); },
     check_point: function (cfg, hkl, e) { var b = build(cfg); return checkPoint(b.spec, b.limits, hkl, e); },
     evaluate: evaluate, grid: grid, gridQ: gridQ, reflections: reflections,
-    satellites: satellites, brillouinZone: brillouinZone, to_scn: to_scn,
+    satellites: satellites, brillouinZone: brillouinZone, resolution: resolution, to_scn: to_scn,
     evaluate_map: evaluate_map, map_to_scn: map_to_scn
   };
 
