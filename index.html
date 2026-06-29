@@ -227,11 +227,12 @@
     </div>
 
     <div class="card">
-      <h2 title="Only the sample motors are limit-checked; C1/A1 (mono) and C3/A3 (ana) are fixed by kf">Sample motor soft limits [&deg;]</h2>
-      <div class="grid">
-        <label title="Sample rotation ω lower limit [°]">C2 (&omega;) lo<input id="C2lo" value="-180"></label><label title="Sample rotation ω upper limit [°]">C2 (&omega;) hi<input id="C2hi" value="180"></label>
-        <label title="Sample scattering angle 2θ lower limit [°]">A2 (2&theta;) lo<input id="A2lo" value="5"></label><label title="Sample scattering angle 2θ upper limit [°]">A2 (2&theta;) hi<input id="A2hi" value="110"></label>
+      <h2 title="C2 (ω) soft limit. A1 (mono 2θ) and A2 (sample 2θ) use internal hard limits [18,53]° and [5,110]°.">Sample C2 (&omega;) soft limit [&deg;]</h2>
+      <div class="grid g2">
+        <label title="Sample rotation ω lower limit [°]">C2 (&omega;) lo<input id="C2lo" value="-180"></label>
+        <label title="Sample rotation ω upper limit [°]">C2 (&omega;) hi<input id="C2hi" value="180"></label>
       </div>
+      <div class="hint" style="margin-top:4px">A1, A2 hard limits applied internally (18–53°, 5–110°)</div>
     </div>
 
     <div class="card">
@@ -380,11 +381,8 @@ function getConfig() {
     sense_m:1, sense_s:1, sense_a:1,                   // GPTAS hardware: all +1 fixed
     plane_u:[num('uh'),num('uk'),num('ul')], plane_v:[num('vh'),num('vk'),num('vl')],
     centering:$('centering').value, km:[num('kmh'),num('kmk'),num('kml')],
-    // C2/A2 = user soft limits; A2 is also capped to the hard range [5,110] and
-    // A1 (mono 2θ) has the internal hard limit [18,53] (prevents over-rotation).
-    limits:{ C2:[num('C2lo'),num('C2hi')],
-             A2:[Math.max(num('A2lo'),5), Math.min(num('A2hi'),110)],
-             A1:[18,53] }
+    // C2 = user soft limit; A1 (mono 2θ) and A2 (sample 2θ) are internal hard limits.
+    limits:{ C2:[num('C2lo'),num('C2hi')], A2:[5,110], A1:[18,53] }
   };
 }
 // NP is computed from start/end/step on the swept axes (axes with |Δ|>0).
@@ -526,7 +524,7 @@ function computeReso(pts){
   if(!rp.length) return;
   const c=rp[Math.floor(rp.length/2)];
   const ell=Planner.resolution(getConfig(), c.q, c.E, getCollim());
-  if(ell) lastReso={qx:c.qx, qy:c.qy, q:c.q, E:c.E, Qplane:ell.Qplane, QEplane:ell.QEplane};
+  if(ell) lastReso={qx:c.qx, qy:c.qy, h:c.h, k:c.k, q:c.q, E:c.E, Qplane:ell.Qplane, QEplane:ell.QEplane};
 }
 function renderSummary(res){
   const bad = res.n_total - res.n_reachable;
@@ -620,6 +618,22 @@ function resoTrace(traces){
   const e=ellipseBoundary(lastReso.qx,lastReso.qy,w,h,phi+ang);
   traces.push({x:e.x, y:e.y, mode:'lines', name:'resolution', hoverinfo:'text',
     text:`FWHM ΔQ∥=${w.toFixed(3)}, ΔQ⊥=${h.toFixed(3)} Å⁻¹ @ E=${lastReso.E}`,
+    line:{color:'rgba(255,180,60,0.95)', width:2}});
+}
+// Resolution ellipse on the dispersion (swept Q, E) plane → focusing check. The
+// QEplane (ΔQ∥[Å⁻¹], ΔE[meV]) ellipse has its Q∥ axis converted to the swept r.l.u.
+// axis by the reciprocal length (a* or b*), so the tilt vs the dispersion is shown.
+function resoTraceQE(traces, xk){
+  if(!lastReso || !lastReso.QEplane || lastReso[xk]===undefined) return;
+  const conv = xk==='k' ? num('bstar') : num('astar');
+  if(!(conv>0)) return;
+  const w=lastReso.QEplane[0], h=lastReso.QEplane[1], ang=lastReso.QEplane[2];
+  const cx=lastReso[xk], cy=lastReso.E, a=w/2, b=h/2, th=ang*Math.PI/180, ct=Math.cos(th), st=Math.sin(th);
+  const xs=[],ys=[];
+  for(let i=0;i<=64;i++){ const t=2*Math.PI*i/64, ex=a*Math.cos(t), ey=b*Math.sin(t);
+    xs.push(cx + (ex*ct-ey*st)/conv); ys.push(cy + (ex*st+ey*ct)); }
+  traces.push({x:xs, y:ys, mode:'lines', name:'resolution', hoverinfo:'text',
+    text:`FWHM ΔQ∥=${w.toFixed(3)} Å⁻¹, ΔE=${h.toFixed(3)} meV`,
     line:{color:'rgba(255,180,60,0.95)', width:2}});
 }
 // Overlays on the (Qx,Qy) plane: 1st Brillouin zone, nuclear Bragg reflections,
@@ -731,7 +745,7 @@ function plotMap(lines, dropped){
     marker:{color:'#2ea043',size:8,line:{color:'#fff',width:0.5}}});
   traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
     marker:{color:'#f85149',size:9,symbol:'x'}});
-  if(bg) resoTrace(traces);
+  if(bg) resoTrace(traces); else resoTraceQE(traces, xk);
   const lab=k=>k+(k==='E'?' [meV]':'');
   let layout;
   if(bg){   // const-E plane → centered square (Qx,Qy) with true aspect
