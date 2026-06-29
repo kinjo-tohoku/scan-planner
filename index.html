@@ -218,10 +218,7 @@
       <div class="row" style="align-items:center;gap:10px">
         <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)">
           <input type="checkbox" id="showreso" checked onchange="scheduleEval()" style="width:auto"> show ellipse (scan centre)</label>
-        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)" title="slice = ellipsoid cross-section (const-E/const-Q scan); projection = energy-integrated broadening">
-          <select id="resmode" onchange="scheduleEval()" style="width:auto">
-            <option value="slice" selected>slice</option><option value="proj">projection</option>
-          </select></label>
+        <span style="color:var(--mut);font-size:12px" title="const-E (Q) plane → slice cross-section; dispersion / energy scan → projection (energy-integrated)">auto: slice on const-E, projection on E-scan</span>
       </div>
       <div class="grid g4" style="margin-top:6px">
         <label title="α1 in-pile (before mono), FWHM [min]">&alpha;1<input id="c1" value="30" oninput="scheduleEval()"></label>
@@ -229,7 +226,7 @@
         <label title="α3 sample–analyzer [min]">&alpha;3<input id="c3" value="100" oninput="scheduleEval()"></label>
         <label title="α4 analyzer–detector [min]">&alpha;4<input id="c4" value="90" oninput="scheduleEval()"></label>
       </div>
-      <div class="hint" id="resohint" style="margin-top:4px">collimations [min]; ellipse = projection on the scattering plane</div>
+      <div class="hint" id="resohint" style="margin-top:4px">collimations [min]; HK map → slice, Q–E map → projection (focusing tilt)</div>
     </div>
 
     <div class="card">
@@ -562,9 +559,9 @@ function computeReso(pts){
   const ell=Planner.resolution(getConfig(), c.q, c.E, getCollim());
   if(ell) lastReso=Object.assign({qx:c.qx, qy:c.qy, h:c.h, k:c.k, q:c.q, E:c.E}, ell);
 }
-// projection (integrate the 3rd axis = what an integrated measurement sees) vs
-// slice (3rd axis = 0 = the ellipsoid cross-section seen in a const-E / const-Q scan).
-function resMode(){ const el=$('resmode'); return el && el.value==='proj' ? 'proj' : 'slice'; }
+// slice vs projection is chosen automatically by the view: a constant-E (Q) plane
+// shows the ellipsoid SLICE at E=0; a dispersion / energy scan shows the PROJECTION
+// (integrated over the transverse axis = the realistic energy-resolution footprint).
 function renderSummary(res){
   const bad = res.n_total - res.n_reachable;
   const nd = res.dropped ? res.dropped.length : 0;   // auto-fit removed these before counting
@@ -651,20 +648,20 @@ function ellipseBoundary(cx,cy,w,h,angDeg,n){
   return {x,y};
 }
 function resoTrace(traces){
-  const ell = lastReso && (resMode()==='proj' ? lastReso.Qplane : lastReso.Qplane_slice);
+  const ell = lastReso && lastReso.Qplane_slice;   // const-E plane → slice (cross-section)
   if(!ell) return;
   const w=ell[0], h=ell[1], ang=ell[2];
   const phi=Math.atan2(lastReso.qy,lastReso.qx)*180/Math.PI;   // Q∥ azimuth → lab frame
   const e=ellipseBoundary(lastReso.qx,lastReso.qy,w,h,phi+ang);
   traces.push({x:e.x, y:e.y, mode:'lines', name:'resolution', hoverinfo:'text',
-    text:`resolution FWHM ${w.toFixed(3)} × ${h.toFixed(3)} Å⁻¹ (${resMode()}) @ E=${lastReso.E}`,
+    text:`resolution FWHM ${w.toFixed(3)} × ${h.toFixed(3)} Å⁻¹ (slice, const E) @ E=${lastReso.E}`,
     line:{color:'rgba(255,180,60,0.95)', width:2}});
 }
 // Resolution ellipse on the dispersion (swept Q, E) plane → focusing check. The
 // QEplane (ΔQ∥[Å⁻¹], ΔE[meV]) ellipse has its Q∥ axis converted to the swept r.l.u.
 // axis by the reciprocal length (a* or b*), so the tilt vs the dispersion is shown.
 function resoTraceQE(traces, xk){
-  const ell = lastReso && (resMode()==='proj' ? lastReso.QEplane : lastReso.QEplane_slice);
+  const ell = lastReso && lastReso.QEplane;   // dispersion / E-scan → projection
   if(!ell || lastReso[xk]===undefined) return;
   const conv = xk==='k' ? num('bstar') : num('astar');
   if(!(conv>0)) return;
@@ -673,8 +670,20 @@ function resoTraceQE(traces, xk){
   const xs=[],ys=[];
   for(let i=0;i<=64;i++){ const t=2*Math.PI*i/64, ex=a*Math.cos(t), ey=b*Math.sin(t);
     xs.push(cx + (ex*ct-ey*st)/conv); ys.push(cy + (ex*st+ey*ct)); }
+  // Focusing direction = the ellipse LONG axis (ΔE) in plot units. Its slope [meV/r.l.u.]
+  // is the meaningful, scale-invariant quantity to match against the dispersion: when the
+  // dispersion slope ≈ this (same sign) the scan is focused. The tilt in *degrees* looks
+  // tiny only because Q and E axes use different units — the slope is what matters.
+  const slope = Math.abs(st)<1e-9 ? Infinity : -conv*ct/st;   // long axis (V+90°), meV per r.l.u.
+  const slopeTxt = !isFinite(slope)||Math.abs(slope)>999 ? '≈vertical (focuses only very steep modes)'
+                                                         : `${slope>0?'+':''}${slope.toFixed(0)} meV/r.l.u.`;
+  // long-axis segment, extended for visibility, so the focusing tilt is actually drawable
+  const ux=-st/conv, uy=ct, L=h*0.9;   // half-length ~0.9·ΔE along the long axis
+  traces.push({x:[cx-L*ux,cx+L*ux], y:[cy-L*uy,cy+L*uy], mode:'lines', name:'focusing dir',
+    hoverinfo:'text', text:`focusing direction ${slopeTxt}`,
+    line:{color:'rgba(255,180,60,0.55)', width:1, dash:'dot'}});
   traces.push({x:xs, y:ys, mode:'lines', name:'resolution', hoverinfo:'text',
-    text:`FWHM ΔQ∥=${w.toFixed(3)} Å⁻¹, ΔE=${h.toFixed(3)} meV`,
+    text:`resolution FWHM ΔQ∥=${w.toFixed(3)} Å⁻¹, ΔE=${h.toFixed(3)} meV (projection); focusing ${slopeTxt}`,
     line:{color:'rgba(255,180,60,0.95)', width:2}});
 }
 // Overlays on the (Qx,Qy) plane: 1st Brillouin zone, nuclear Bragg reflections,
