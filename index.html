@@ -149,9 +149,11 @@
     <div class="card">
       <h2>Sample (lattice)</h2>
       <div class="row" style="margin-bottom:6px;align-items:center">
-        <span class="hint" style="margin:0">input</span>
-        <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)"><input type="radio" name="latmode" value="real" checked onchange="updateLattice();scheduleEval()" style="width:auto"> real</label>
-        <label style="flex-direction:row;align-items:center;gap:4px;color:var(--ink)"><input type="radio" name="latmode" value="recip" onchange="updateLattice();scheduleEval()" style="width:auto"> reciprocal (AS,BS,CG)</label>
+        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)">input
+          <select id="latmode" onchange="updateLattice();scheduleEval()" style="width:auto">
+            <option value="real" selected>real a,b,c</option>
+            <option value="recip">reciprocal a*,b*,cosγ*</option>
+          </select></label>
       </div>
       <div class="grid g3">
         <label>a [&Aring;]<input id="a" value="4.0"></label>
@@ -316,7 +318,7 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') toggleHelp(false)
 
 // Lattice input can be real (a,b,c,α,β,γ) or reciprocal (a*,b*,cosγ*). The active
 // side drives the other (kept in sync) so getConfig always reads the real lattice.
-function latticeMode(){ const r=document.querySelector('input[name=latmode]:checked'); return r?r.value:'real'; }
+function latticeMode(){ const el=$('latmode'); return el?el.value:'real'; }
 function updateLattice(){
   const mode=latticeMode();
   ['a','b','alpha','beta','gamma'].forEach(id=>$(id).disabled=(mode!=='real'));
