@@ -845,27 +845,6 @@ function dispAxisLabel(lines, d, dd){
   };
   return `(${term(0)}, ${term(1)}, ${term(2)})  r.l.u.`;
 }
-// Scan-direction cues for a map: a start marker + an inner-sweep arrow (fast axis, one scan
-// line) and an outer-shift arrow (slow axis, line-to-line), so the Q–E / plane map shows WHERE
-// the scan starts and which way it runs. Generic in plot coords via xval/yval (both views).
-function scanDirCues(lines, xval, yval){
-  const out = { trace:null, annotations:[] };
-  if(!lines || !lines.length || !lines[0].points || !lines[0].points.length) return out;
-  const p0 = lines[0].points[0], x0 = xval(p0), y0 = yval(p0);
-  out.trace = { x:[x0], y:[y0], mode:'markers', name:'scan start', hoverinfo:'text',
-    text:['scan starts here (line 1, point 1)'],
-    marker:{ symbol:'star', size:15, color:'#ffd24a', line:{color:'#6b4e00', width:1} } };
-  const arrow=(x1,y1,x2,y2,color)=>({ x:x2, y:y2, ax:x1, ay:y1, xref:'x', yref:'y',
-    axref:'x', ayref:'y', showarrow:true, arrowhead:2, arrowsize:1.5, arrowwidth:2.5, arrowcolor:color });
-  const pe = lines[0].points[lines[0].points.length-1];      // inner (fast) sweep → its end
-  if(xval(pe)!==x0 || yval(pe)!==y0) out.annotations.push(arrow(x0,y0, xval(pe),yval(pe), 'rgba(255,200,80,0.95)'));
-  if(lines.length>1){                                        // outer (slow) shift → last line
-    const Ln=lines[lines.length-1];
-    if(Ln.points && Ln.points.length){ const pn=Ln.points[0];
-      if(xval(pn)!==x0 || yval(pn)!==y0) out.annotations.push(arrow(x0,y0, xval(pn),yval(pn), 'rgba(120,200,255,0.95)')); }
-  }
-  return out;
-}
 function plotMap(lines, dropped){
   // Scatter all points. If E is constant → (h,k) plane, else → (swept Q, E) plane.
   const all=[]; lines.forEach(ln=>ln.points.forEach(p=>all.push(p)));
@@ -901,8 +880,6 @@ function plotMap(lines, dropped){
   traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
     marker:{color:'#f85149',size:9,symbol:'x'}});
   if(bg) resoTrace(traces); else resoTraceQE(traces, dvec);
-  const cue = scanDirCues(lines, xval, yval);   // start marker + inner/outer direction arrows
-  if(cue.trace) traces.push(cue.trace);
   let layout;
   if(bg){   // const-E plane → centered square (Qx,Qy) with true aspect
     layout=Object.assign({},PLOT_BASE, hkAxes(
@@ -913,7 +890,6 @@ function plotMap(lines, dropped){
       xaxis:{title:xlabel, gridcolor:'#30363d', zerolinecolor:'#444'},
       yaxis:{title:ylabel, gridcolor:'#30363d', zerolinecolor:'#444'}});
   }
-  if(cue.annotations.length) layout.annotations = cue.annotations;
   Plotly.react('plot',traces,layout,PLOT_CFG);
 }
 async function runEvaluate(){
