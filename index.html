@@ -262,15 +262,14 @@
     <div class="card">
       <h2 title="Sample-environment magnet that rotates with the sample. The incident and scattered beams must pass through the magnet windows (port of addon/calculate_range.py).">Magnet (sample environment)</h2>
       <div class="row" style="align-items:center;gap:8px;margin-top:2px">
-        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)">
-          <input type="checkbox" id="magneton" onchange="scheduleEval()" style="width:auto"> restrict to windows</label>
-        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)" title="Vertical-field magnet → wider ±60° windows. Horizontal-field magnet → narrower ±25° (coils sit in the scattering plane).">field
-          <select id="magfield" onchange="setMagField()" style="width:auto">
-            <option value="60" selected>vertical (±60°)</option>
+        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)" title="No magnet → no restriction. Vertical-field magnet → wider ±60° windows. Horizontal-field magnet → narrower ±25° (coils sit in the scattering plane).">magnet
+          <select id="magtype" onchange="setMagType()" style="width:auto">
+            <option value="none" selected>none</option>
+            <option value="60">vertical (±60°)</option>
             <option value="25">horizontal (±25°)</option>
           </select></label>
       </div>
-      <div class="grid g4" style="margin-top:6px">
+      <div class="grid g4" id="magrow" style="margin-top:6px;opacity:0.5">
         <label title="The reflection / crystal direction you align to — the accessible region (lobe) is centred on it. Sets the magnet window orientation; the magnet rotates with the sample.">ref h<input id="magh" value="1" oninput="scheduleEval()"></label>
         <label>ref k<input id="magk" value="0" oninput="scheduleEval()"></label>
         <label>ref l<input id="magl" value="0" oninput="scheduleEval()"></label>
@@ -419,9 +418,12 @@ function updateLattice(){
 }
 // Fixed-energy presets → k = sqrt(E/2.07214).
 function setEfix(){ $('kfix').value=Math.sqrt(num('efix')/2.07214).toFixed(4); scheduleEval(); }
-// Magnet field type → window half-width (vertical ±60°, horizontal ±25°). Sets the editable
-// ±° half field, so a custom magnet can still be typed in afterwards.
-function setMagField(){ const el=$('magfield'); if(el && $('maghalf')) $('maghalf').value=el.value; scheduleEval(); }
+// Magnet selector: none / vertical (±60°) / horizontal (±25°). The chosen field type sets the
+// editable ±° half field (custom magnet can still be typed in), and dims the ref/half row when off.
+function setMagType(){ const el=$('magtype'); if(!el) return; const v=el.value, on=(v!=='none');
+  if(on && $('maghalf')) $('maghalf').value=v;
+  if($('magrow')) $('magrow').style.opacity = on?'1':'0.5';
+  scheduleEval(); }
 
 // Keep Plotly's internal size in sync with the container. Without this, a layout
 // reflow (e.g. a scrollbar appearing after Evaluate shrinks the plot ~15px) leaves
@@ -443,7 +445,7 @@ function getConfig() {
     centering:$('centering').value, km:[num('kmh'),num('kmk'),num('kml')],
     // C2 = user soft limit; A1 (mono 2θ) and A2 (sample 2θ) are internal hard limits.
     limits:{ C2:[Number.isFinite(num('C2lo'))?num('C2lo'):-180, Number.isFinite(num('C2hi'))?num('C2hi'):180], A2:[5,110], A1:[18,53] },
-    magnet:{ on: !!($('magneton') && $('magneton').checked),
+    magnet:{ on: !!($('magtype') && $('magtype').value!=='none'),
              ref: [num('magh'), num('magk'), num('magl')], half_deg: num('maghalf') }
   };
 }
