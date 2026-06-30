@@ -827,6 +827,24 @@ function plot1D(pts, axis){
   }),PLOT_CFG);
 }
 
+// Parametric x-axis label for a dispersion map: the running (h,k,l) along the swept direction,
+// e.g. "(ξ, 1, 0)" or "(1, 1, ξ)" — far clearer than "(1 0 0) ξ". Fixed components show their
+// value; components that move with the swept vector show ξ (covarying components share it).
+function dispAxisLabel(lines, d, dd){
+  const p = lines && lines[0] && lines[0].points && lines[0].points[0];
+  if(!p) return `${fmtv(d)} · ξ  r.l.u.`;
+  const xi0 = (p.h*d[0]+p.k*d[1]+p.l*d[2])/dd;
+  const c = [p.h-xi0*d[0], p.k-xi0*d[1], p.l-xi0*d[2]];        // fixed (perpendicular) offset
+  const g = x => { const r=Math.round(x*1000)/1000; return String(Object.is(r,-0)?0:r); };
+  const term = j => {
+    const dj = Math.round(d[j]*1000)/1000, cj = c[j];
+    if(Math.abs(dj)<1e-6) return g(cj);                        // fixed component
+    let s = dj===1 ? 'ξ' : dj===-1 ? '−ξ' : g(dj)+'ξ';        // moves with ξ
+    if(Math.abs(cj)>1e-4) s += (cj>0?'+':'−')+g(Math.abs(cj));
+    return s;
+  };
+  return `(${term(0)}, ${term(1)}, ${term(2)})  r.l.u.`;
+}
 // Scan-direction cues for a map: a start marker + an inner-sweep arrow (fast axis, one scan
 // line) and an outer-shift arrow (slow axis, line-to-line), so the Q–E / plane map shows WHERE
 // the scan starts and which way it runs. Generic in plot coords via xval/yval (both views).
@@ -858,7 +876,7 @@ function plotMap(lines, dropped){
   const dvec=dispVec(), dd=dvec[0]*dvec[0]+dvec[1]*dvec[1]+dvec[2]*dvec[2]||1;
   const xval = bg ? (p=>p.qx) : (p=>(p.h*dvec[0]+p.k*dvec[1]+p.l*dvec[2])/dd);   // ξ = reduced coord along d
   const yval = bg ? (p=>p.qy) : (p=>p.E);
-  const xlabel = bg ? 'Qx [Å⁻¹]' : `${fmtv(dvec)} ξ [r.l.u.]`;
+  const xlabel = bg ? 'Qx [Å⁻¹]' : dispAxisLabel(lines, dvec, dd);
   const ylabel = bg ? 'Qy [Å⁻¹]' : 'E [meV]';
   const traces=[];
   if(bg && lastGrid){
