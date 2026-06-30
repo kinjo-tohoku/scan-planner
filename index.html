@@ -271,12 +271,12 @@
           </select></label>
       </div>
       <div class="grid g4" style="margin-top:6px">
-        <label title="Crystal direction (h,k,l) that points along the incident beam at your mounting — this sets where the front window faces. Depends on how you set the sample.">ref h<input id="magh" value="1" oninput="scheduleEval()"></label>
+        <label title="The reflection / crystal direction you align to — the accessible region (lobe) is centred on it. Sets the magnet window orientation; the magnet rotates with the sample.">ref h<input id="magh" value="1" oninput="scheduleEval()"></label>
         <label>ref k<input id="magk" value="0" oninput="scheduleEval()"></label>
         <label>ref l<input id="magl" value="0" oninput="scheduleEval()"></label>
-        <label title="Window half-width [°], set by the field type (editable for a custom magnet). Two opposite windows: front (ref) and back (ref+180°).">±° half<input id="maghalf" value="60" oninput="scheduleEval()"></label>
+        <label title="Window half-width [°], set by the field type (editable for a custom magnet). Two opposite windows.">±° half<input id="maghalf" value="60" oninput="scheduleEval()"></label>
       </div>
-      <div class="hint" style="margin-top:4px">2 windows (front = ref direction · back = ref+180°), each ±half-width. Incident beam → front; scattered → front or back. Magnet rotates with the sample; <b>ref = your mounting</b>. Elastic geometry.</div>
+      <div class="hint" style="margin-top:4px">Two opposite windows, each ±half-width. The reachable region is a lobe <b>centred on the ref direction</b> — set ref to the reflection you align to. Magnet rotates with the sample · elastic geometry.</div>
     </div>
 
     <div class="card">

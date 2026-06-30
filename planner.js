@@ -211,8 +211,10 @@
     var Q = matVec(spec.B, [+hkl[0], +hkl[1], +hkl[2]]), qm = norm(Q);
     if (qm < 1e-9) return false;                       // |Q|=0 — beams undefined, don't block
     var rd = matVec(spec.B, mag.ref);
-    var r1 = dot(rd, spec.e1), r2 = dot(rd, spec.e2), rn = Math.sqrt(r1 * r1 + r2 * r2);
-    if (rn < 1e-9) return false;                       // ref out of plane → can't define windows
+    var r1 = dot(rd, spec.e1), r2 = dot(rd, spec.e2);
+    var rt = r1; r1 = -r2; r2 = rt;                    // rotate +90° in-plane: `ref` is the
+    var rn = Math.sqrt(r1 * r1 + r2 * r2);             //   ACCESS direction (reflection you align
+    if (rn < 1e-9) return false;                       //   to / centre the window on), not the beam
     var q1 = dot(Q, spec.e1), q2 = dot(Q, spec.e2);
     var sgn = (q1 * r2 - q2 * r1) > 0 ? 1 : -1;        // side of Q relative to ref (kp = ref rot −90°)
     var omega = sgn * Math.acos(clampcos((q1 * r1 + q2 * r2) / (qm * rn))) - Math.PI / 2;
