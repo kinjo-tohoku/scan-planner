@@ -261,13 +261,20 @@
 
     <div class="card">
       <h2 title="Sample-environment magnet that rotates with the sample. The incident and scattered beams must pass through the magnet windows (port of addon/calculate_range.py).">Magnet (sample environment)</h2>
-      <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)">
-        <input type="checkbox" id="magneton" onchange="scheduleEval()" style="width:auto"> restrict reachable region to the magnet windows</label>
+      <div class="row" style="align-items:center;gap:8px;margin-top:2px">
+        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)">
+          <input type="checkbox" id="magneton" onchange="scheduleEval()" style="width:auto"> restrict to windows</label>
+        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)" title="Vertical-field magnet → wider ±60° windows. Horizontal-field magnet → narrower ±25° (coils sit in the scattering plane).">field
+          <select id="magfield" onchange="setMagField()" style="width:auto">
+            <option value="60" selected>vertical (±60°)</option>
+            <option value="25">horizontal (±25°)</option>
+          </select></label>
+      </div>
       <div class="grid g4" style="margin-top:6px">
         <label title="Crystal direction (h,k,l) that points along the incident beam at your mounting — this sets where the front window faces. Depends on how you set the sample.">ref h<input id="magh" value="1" oninput="scheduleEval()"></label>
         <label>ref k<input id="magk" value="0" oninput="scheduleEval()"></label>
         <label>ref l<input id="magl" value="0" oninput="scheduleEval()"></label>
-        <label title="Window half-width [°]. Two opposite windows: front (ref direction) and back (ref+180°).">±° half<input id="maghalf" value="60" oninput="scheduleEval()"></label>
+        <label title="Window half-width [°], set by the field type (editable for a custom magnet). Two opposite windows: front (ref) and back (ref+180°).">±° half<input id="maghalf" value="60" oninput="scheduleEval()"></label>
       </div>
       <div class="hint" style="margin-top:4px">2 windows (front = ref direction · back = ref+180°), each ±half-width. Incident beam → front; scattered → front or back. Magnet rotates with the sample; <b>ref = your mounting</b>. Elastic geometry.</div>
     </div>
@@ -412,6 +419,9 @@ function updateLattice(){
 }
 // Fixed-energy presets → k = sqrt(E/2.07214).
 function setEfix(){ $('kfix').value=Math.sqrt(num('efix')/2.07214).toFixed(4); scheduleEval(); }
+// Magnet field type → window half-width (vertical ±60°, horizontal ±25°). Sets the editable
+// ±° half field, so a custom magnet can still be typed in afterwards.
+function setMagField(){ const el=$('magfield'); if(el && $('maghalf')) $('maghalf').value=el.value; scheduleEval(); }
 
 // Keep Plotly's internal size in sync with the container. Without this, a layout
 // reflow (e.g. a scrollbar appearing after Evaluate shrinks the plot ~15px) leaves
