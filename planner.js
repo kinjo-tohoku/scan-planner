@@ -106,6 +106,11 @@
       sense_m: cfg.sense_m == null ? 1 : (+cfg.sense_m),
       sense_s: cfg.sense_s == null ? 1 : (+cfg.sense_s),
       sense_a: cfg.sense_a == null ? 1 : (+cfg.sense_a),
+      magnet: (cfg.magnet && cfg.magnet.on && cfg.magnet.ref) ? {
+        ref: [+cfg.magnet.ref[0], +cfg.magnet.ref[1], +cfg.magnet.ref[2]],
+        half: (cfg.magnet.half_deg != null ? +cfg.magnet.half_deg : 60) * Math.PI / 180,
+        a2max: 110 * Math.PI / 180
+      } : null,
       tol: 1e-4
     };
   }
@@ -195,6 +200,31 @@
     return lo <= v && v <= hi;
   }
 
+  // Sample-environment magnet that rotates with the sample. Two windows — front (along the
+  // mounting/reference direction in the plane) and back (+180°) — each of half-width `half`.
+  // The incident beam must pass the FRONT window, the scattered beam the FRONT or BACK window
+  // (elastic geometry, port of addon/calculate_range.py). Returns true if the magnet BLOCKS Q.
+  // mag = { ref:[h,k,l], half:rad, a2max:rad }. ki = incident wavevector at this point.
+  function magnetBlocks(spec, hkl, ki) {
+    var mag = spec.magnet;
+    if (!mag || !(ki > 0)) return false;
+    var Q = matVec(spec.B, [+hkl[0], +hkl[1], +hkl[2]]), qm = norm(Q);
+    if (qm < 1e-9) return false;                       // |Q|=0 — beams undefined, don't block
+    var rd = matVec(spec.B, mag.ref);
+    var r1 = dot(rd, spec.e1), r2 = dot(rd, spec.e2), rn = Math.sqrt(r1 * r1 + r2 * r2);
+    if (rn < 1e-9) return false;                       // ref out of plane → can't define windows
+    var q1 = dot(Q, spec.e1), q2 = dot(Q, spec.e2);
+    var sgn = (q1 * r2 - q2 * r1) > 0 ? 1 : -1;        // side of Q relative to ref (kp = ref rot −90°)
+    var omega = sgn * Math.acos(clampcos((q1 * r1 + q2 * r2) / (qm * rn))) - Math.PI / 2;
+    var theta = Math.asin(Math.min(1.0, qm / (2.0 * ki)));   // elastic half-scattering angle
+    var C2 = omega + theta, A2 = 2.0 * theta, d = mag.half;
+    if (Math.abs(A2) >= mag.a2max) return true;        // beyond the elastic 2θ ceiling
+    var inFront = Math.abs(C2) < d;                    // incident through the front window
+    var scFront = Math.abs(A2 - C2) < d;               // scattered through the front window
+    var scBack = Math.abs(Math.PI - A2 + C2) < d;      // scattered through the back window (+180°)
+    return !(inFront && (scFront || scBack));
+  }
+
   function checkPoint(spec, limits, hkl, e) {
     var ang;
     try { ang = angles(spec, hkl, e); }
@@ -215,6 +245,8 @@
           };
       }
     }
+    if (spec.magnet && magnetBlocks(spec, hkl, kiKf(spec, e)[0]))
+      return { reachable: false, reason: "blocked by magnet window", angles: vals };
     return { reachable: true, angles: vals };
   }
 
