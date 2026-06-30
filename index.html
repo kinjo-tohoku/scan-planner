@@ -269,13 +269,15 @@
             <option value="25">horizontal (±25°)</option>
           </select></label>
       </div>
-      <div class="grid g4" id="magrow" style="margin-top:6px;opacity:0.5">
-        <label title="The reflection / crystal direction you align to — the accessible region (lobe) is centred on it. Sets the magnet window orientation; the magnet rotates with the sample.">ref h<input id="magh" value="1" oninput="scheduleEval()"></label>
-        <label>ref k<input id="magk" value="0" oninput="scheduleEval()"></label>
-        <label>ref l<input id="magl" value="0" oninput="scheduleEval()"></label>
-        <label title="Window half-width [°], set by the field type (editable for a custom magnet). Two opposite windows.">±° half<input id="maghalf" value="60" oninput="scheduleEval()"></label>
+      <div class="row" id="magrow" style="margin-top:6px;align-items:center;gap:6px;opacity:0.5">
+        <span class="hint" style="margin:0;color:var(--ink)" title="The reflection you orient the magnet to — the reachable region (two lobes) is centred on this direction. The magnet rotates with the sample.">target reflection</span>
+        <input id="magh" value="1" style="width:50px" oninput="scheduleEval()" title="h">
+        <input id="magk" value="0" style="width:50px" oninput="scheduleEval()" title="k">
+        <input id="magl" value="0" style="width:50px" oninput="scheduleEval()" title="l">
+        <span class="hint" style="margin:0 0 0 10px" title="Window half-width [°], set by the field type — editable for a custom magnet.">window ±°</span>
+        <input id="maghalf" value="60" style="width:50px" oninput="scheduleEval()">
       </div>
-      <div class="hint" style="margin-top:4px">Two opposite windows (±half-width); incident &amp; scattered each pass either window → two symmetric lobes <b>about the ref direction</b>. Set ref to the reflection you align to. Magnet rotates with the sample · elastic geometry.</div>
+      <div class="hint" style="margin-top:4px">Two opposing windows (±half-width) that rotate with the sample. A point is reachable only when <b>both</b> the incident and scattered beams clear a window → two symmetric lobes centred on the <b>target reflection</b>. Elastic geometry.</div>
     </div>
 
     <div class="card">
