@@ -801,6 +801,34 @@ function plot(pts){
   else plot1D(pts, vE?'E':(vH?'h':(vK?'k':'E')));        // energy/mixed → x = swept amount
 }
 
+// Small magnet schematic for a corner of the (Qx,Qy) view: target reflection Q drawn UP, the
+// two windows LEFT/RIGHT (⟂ Q, since elastic beams straddle Q), the incident ki, and the
+// in-plane basis vectors u,v. Returns traces + annotations to merge into the plot.
+function arcPts(cx,cy,r,a0,a1,n){ n=n||28; const x=[],y=[]; for(let i=0;i<=n;i++){const t=a0+(a1-a0)*i/n; x.push(cx+r*Math.cos(t)); y.push(cy+r*Math.sin(t));} return {x,y}; }
+function magnetIcon(cfg, qmax){
+  const out={traces:[], ann:[]};
+  if(!cfg.magnet || !cfg.magnet.on || !(qmax>0)) return out;
+  let refQ; try{ refQ=Planner.qxy(cfg, cfg.magnet.ref); }catch(e){ return out; }
+  if(!refQ || !(refQ.q>1e-6)) return out;
+  const bref=Math.atan2(refQ.qy, refQ.qx), ROT=Math.PI/2-bref;        // rotate target Q to "up"
+  const half=((+cfg.magnet.half_deg)||60)*Math.PI/180;
+  const ki=Math.abs(+cfg.kfix)||2.66, th=Math.asin(Math.min(1, refQ.q/(2*ki)));
+  const Rm=qmax*0.19, cx=-qmax*0.74, cy=qmax*0.74;
+  const ln=(p,col,w)=>out.traces.push({x:p.x,y:p.y,mode:'lines',line:{color:col,width:w},hoverinfo:'skip',showlegend:false});
+  ln(arcPts(cx,cy,Rm,0,2*Math.PI,56),'rgba(170,175,185,0.4)',1);                      // body
+  for(const a of [0,Math.PI]) ln(arcPts(cx,cy,Rm,a-half,a+half),'rgba(120,200,255,0.9)',5);                       // windows L/R
+  for(const a of [Math.PI/2,3*Math.PI/2]) ln(arcPts(cx,cy,Rm,a-(Math.PI/2-half),a+(Math.PI/2-half)),'rgba(110,120,130,0.95)',6); // walls T/B
+  const arrow=(az,len,col,label)=>{ const ex=cx+len*Math.cos(az),ey=cy+len*Math.sin(az);
+    out.ann.push({x:ex,y:ey,ax:cx,ay:cy,xref:'x',yref:'y',axref:'x',ayref:'y',showarrow:true,arrowhead:2,arrowsize:1.1,arrowwidth:2,arrowcolor:col});
+    if(label) out.ann.push({x:cx+len*1.24*Math.cos(az),y:cy+len*1.24*Math.sin(az),text:label,showarrow:false,font:{size:10,color:col}}); };
+  arrow(Math.PI/2, Rm*1.15, 'rgba(255,200,80,0.95)', 'Q '+fmtv(cfg.magnet.ref));      // target Q (up)
+  arrow(th, Rm*1.0, 'rgba(120,200,255,0.95)', 'ki');                                  // incident (right window)
+  const basis=(hkl,lab)=>{ let q; try{q=Planner.qxy(cfg,hkl);}catch(e){return;} if(!q||!(q.q>1e-6))return;
+    arrow(Math.atan2(q.qy,q.qx)+ROT, Rm*0.78, 'rgba(200,160,255,0.85)', lab); };
+  basis(cfg.plane_u, fmtv(cfg.plane_u)); basis(cfg.plane_v, fmtv(cfg.plane_v));
+  out.ann.push({x:cx,y:cy-Rm*1.55,text:'magnet',showarrow:false,font:{size:10,color:'#9aa'}});
+  return out;
+}
 function plotHK(pts){
   // In-plane scattering plane drawn in Cartesian (Qx,Qy) [Å⁻¹]. Points carry both
   // crystallographic (h,k,l) (shown in hover) and qx,qy (plot coordinates).
@@ -824,7 +852,10 @@ function plotHK(pts){
   resoTrace(traces);
   const ax = hkAxes(lastGrid?lastGrid.qx:pts.map(p=>p.qx),
                     lastGrid?lastGrid.qy:pts.map(p=>p.qy), 'Qx [Å⁻¹]', 'Qy [Å⁻¹]');
-  Plotly.react('plot',traces,Object.assign({},PLOT_BASE,ax),PLOT_CFG);
+  const layout = Object.assign({},PLOT_BASE,ax);
+  const ic = magnetIcon(getConfig(), lastGrid?lastGrid.qx[lastGrid.qx.length-1]:0);
+  ic.traces.forEach(t=>traces.push(t)); if(ic.ann.length) layout.annotations = ic.ann;
+  Plotly.react('plot',traces,layout,PLOT_CFG);
 }
 
 function plot1D(pts, axis){
@@ -914,6 +945,10 @@ function plotMap(lines, dropped){
     layout=Object.assign({},PLOT_BASE,{
       xaxis:{title:xlabel, gridcolor:'#30363d', zerolinecolor:'#444'},
       yaxis:{title:ylabel, gridcolor:'#30363d', zerolinecolor:'#444'}});
+  }
+  if(bg){   // magnet schematic in the corner (Qx,Qy view only)
+    const ic=magnetIcon(getConfig(), lastGrid?lastGrid.qx[lastGrid.qx.length-1]:0);
+    ic.traces.forEach(t=>traces.push(t)); if(ic.ann.length) layout.annotations=(layout.annotations||[]).concat(ic.ann);
   }
   Plotly.react('plot',traces,layout,PLOT_CFG);
 }
