@@ -57,6 +57,12 @@ It's just three static files, so any static host works:
   the plane are treated as unreachable.
 - filman accepts at most **40** scan slots per `GO`, so larger maps are split automatically.
 
+## License
+
+**MIT** — see [`LICENSE`](LICENSE). Free to use, modify, redistribute and self-host; just keep
+the copyright notice. © 2026 Katsuki Kinjo / Tohoku University. The bundled `plotly.min.js` is
+MIT-licensed by Plotly, Inc. and keeps its own notice.
+
 ---
 
 Made for GPTAS (4G, JRR-3) users.
