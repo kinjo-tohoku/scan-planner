@@ -200,10 +200,17 @@
     return lo <= v && v <= hi;
   }
 
-  // Sample-environment magnet that rotates with the sample. Two windows — front (along the
-  // mounting/reference direction in the plane) and back (+180°) — each of half-width `half`.
-  // The incident beam must pass the FRONT window, the scattered beam the FRONT or BACK window
-  // (elastic geometry, port of addon/calculate_range.py). Returns true if the magnet BLOCKS Q.
+  // window test: beam angle x [rad] passes if within ±d of a window. Two opposite windows
+  // (front at 0, back at ±180°), so a beam clears if |x| < d (front) or |x| > π−d (back).
+  function winNear(x, d) {
+    x = Math.abs(x - 2 * Math.PI * Math.round(x / (2 * Math.PI)));   // |wrap to (−π,π]| ∈ [0,π]
+    return x < d || x > Math.PI - d;
+  }
+  // Sample-environment magnet that rotates with the sample. Two opposite windows (the mounting
+  // reference direction ± 180°), each of half-width `half`. The incident AND the scattered beam
+  // must EACH pass through one of the two windows → the accessible region is two symmetric lobes
+  // about the ref direction. Elastic geometry (extends addon/calculate_range.py, which only let
+  // the incident use the front window). Returns true if the magnet BLOCKS Q.
   // mag = { ref:[h,k,l], half:rad, a2max:rad }. ki = incident wavevector at this point.
   function magnetBlocks(spec, hkl, ki) {
     var mag = spec.magnet;
@@ -221,10 +228,7 @@
     var theta = Math.asin(Math.min(1.0, qm / (2.0 * ki)));   // elastic half-scattering angle
     var C2 = omega + theta, A2 = 2.0 * theta, d = mag.half;
     if (Math.abs(A2) >= mag.a2max) return true;        // beyond the elastic 2θ ceiling
-    var inFront = Math.abs(C2) < d;                    // incident through the front window
-    var scFront = Math.abs(A2 - C2) < d;               // scattered through the front window
-    var scBack = Math.abs(Math.PI - A2 + C2) < d;      // scattered through the back window (+180°)
-    return !(inFront && (scFront || scBack));
+    return !(winNear(C2, d) && winNear(A2 - C2, d));   // incident AND scattered each clear a window
   }
 
   function checkPoint(spec, limits, hkl, e) {
