@@ -1,44 +1,62 @@
-# filman scan planner — standalone (no server)
+# filman scan planner
 
-This folder is a **self-contained, backend-free** build of the planner. All the
-crystallography runs in the browser via `planner.js` (a JavaScript port of
-`planner.py` + `filman_ng.crystal`, verified numerically identical). It needs
-**no Python, no numpy, no server, no install** — just static file hosting.
+A browser-based **scan planner for the GPTAS triple-axis spectrometer** (beamline 4G, JRR-3).
+Lay out your scans in (Q, E), see at a glance which points the spectrometer can actually
+reach, check the instrumental resolution, and export ready-to-run **filman `.scn`** scripts.
 
-```
-static/
-  index.html      ← the app (open this)
-  planner.js      ← the computation (ported from Python)
-  plotly.min.js   ← plotting library (bundled, no CDN)
-```
+**▶ Live app: https://kinjo-tohoku.github.io/scan-planner/**
 
-## Try it locally
-- Easiest: double-click `index.html` (opens in your browser).
-- Or serve the folder: `python -m http.server` inside `static/`, then open
+Everything runs in your browser — there is **nothing to install** and no server to set up.
+Open the page (or a local `index.html`) and start planning.
+
+## What it does
+
+- **Reachability maps** — for your crystal, scattering plane and fixed energy, shade the
+  region the spectrometer can reach within its motor limits. Constant-E **Q–Q** maps and
+  **Q–E** dispersion maps.
+- **Resolution** — Cooper–Nathans resolution ellipses at the scan centre, including the
+  focusing tilt on the dispersion view.
+- **Sample-environment magnet** — optionally restrict the reachable region to a magnet's
+  windows (vertical ±60° or horizontal ±25°), with a small schematic of the geometry.
+- **`.scn` export** — turn a planned line or map into a filman scan script, ready to load
+  on the instrument.
+- **Estimated time** — a rough measurement-time estimate for the reachable points.
+
+GPTAS defaults (PG002 monochromator, kf = 2.662 Å⁻¹ / 14.7 meV, standard collimations, …)
+are filled in; change the crystal, plane, energy and limits to match your experiment.
+
+## Run it locally
+
+You don't have to — just use the live link above — but if you want a local copy:
+
+- **Easiest:** download the three files below and double-click `index.html`.
+- **Or serve the folder:** run `python -m http.server` in this directory, then open
   `http://127.0.0.1:8000/`.
 
-## Publish it for others (pick one)
+```
+index.html      ← the app
+planner.js      ← all the crystallography / kinematics (runs in the browser)
+plotly.min.js   ← plotting library (bundled, no CDN)
+```
 
-**A. GitHub Pages (free, no IT request, gives a public URL)**
-1. Create a GitHub repo and upload the **contents of this `static/` folder**
-   (index.html, planner.js, plotly.min.js) to the repo root (or a `/docs` folder).
-2. Repo → Settings → Pages → Source = your branch, folder = root (or `/docs`).
-3. After a minute you get `https://<user>.github.io/<repo>/`. Link it from the
-   GPTAS HP. Done — nothing runs server-side.
+## Host it yourself
 
-**B. Netlify / Cloudflare Pages (drag-and-drop)**
-Drag the `static/` folder onto app.netlify.com/drop → instant public URL.
+It's just three static files, so any static host works:
 
-**C. On octa (or any campus web server)**
-Ask whoever administers the site to drop these three files into a directory the
-web server already serves (e.g. a `scan-planner/` folder under the GPTAS site).
-No Python/proxy/daemon needed — they are plain static files. (This sidesteps the
-numpy-crash and no-root issues entirely.)
+- **GitHub Pages** — Settings → Pages → deploy from branch, folder = root. You get a
+  public URL.
+- **Netlify / Cloudflare Pages** — drag-and-drop the folder for an instant URL.
+- **Any campus / web server** — drop the three files into a served directory. No Python,
+  proxy or daemon required.
 
 ## Notes
-- Computation is identical to the Python/server version (cross-checked: angles to
-  1e-9, reachability, NP/line counts, `.scn` text). If results ever look off,
-  compare against the server build.
-- The app is read-only and stores nothing; safe to expose publicly.
-- To update after changing `planner/planner.py`, re-port the change into
-  `planner.js` and re-run the cross-check before publishing.
+
+- The app is **read-only** — it computes locally and stores nothing, so it's safe to share
+  publicly.
+- `.scn` scans are written in-plane (along the two scattering-plane vectors); points out of
+  the plane are treated as unreachable.
+- filman accepts at most **40** scan slots per `GO`, so larger maps are split automatically.
+
+---
+
+Made for GPTAS (4G, JRR-3) users.

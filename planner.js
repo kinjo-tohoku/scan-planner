@@ -1,10 +1,10 @@
 /* filman scan planner — client-side core (no backend).
  *
- * JavaScript port of planner/planner.py + filman_ng.crystal (lattice + kinematics).
- * Same closed-form TAS kinematics; no numpy, no server. Runs in the browser and
- * in Node (for the numerical cross-check against the Python reference).
+ * Self-contained triple-axis-spectrometer engine: lattice geometry, closed-form
+ * kinematics, reachability, Cooper–Nathans resolution and .scn export. No numpy,
+ * no server — runs directly in the browser (and in Node, for the self-tests).
  *
- * Exposed API mirrors the server endpoints:
+ * Public API:
  *   evaluate(cfg, scan) / grid(cfg, e, hmin,hmax,kmin,kmax, n, l)
  *   to_scn(cfg, scan, scan_no) / evaluate_map(cfg, map, trim) / map_to_scn(cfg, map, trim)
  */
