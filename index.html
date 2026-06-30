@@ -722,7 +722,10 @@ function resoTraceQE(traces, d){
   const phi = Math.atan2(lastReso.qy, lastReso.qx)*180/Math.PI;
   const ell = Planner.qeAlong(lastReso.RM, phi - beta);       // resolution along d (not along Q)
   if(!ell) return;
-  const w=ell[0], h=ell[1], ang=ell[2];
+  // GPTAS Q–E sign convention: the reference (simulate_with_resolution.py) draws the
+  // energy-momentum ellipse at angle = −a2 (negated), opposite to the Q-plane (+a1). Match it
+  // so the focusing tilt / slope point the GPTAS-correct way (was reversed).
+  const w=ell[0], h=ell[1], ang=-ell[2];
   const dd=d[0]*d[0]+d[1]*d[1]+d[2]*d[2]||1;
   const cx=(lastReso.h*d[0]+lastReso.k*d[1]+lastReso.l*d[2])/dd;   // ξ of the centre
   const cy=lastReso.E, a=w/2, b=h/2, th=ang*Math.PI/180, ct=Math.cos(th), st=Math.sin(th);
