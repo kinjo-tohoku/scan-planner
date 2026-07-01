@@ -544,7 +544,9 @@
   // is NOT along that axis (off-symmetry hk, or non-orthogonal lattice) the relevant width
   // and focusing tilt are along the dispersion axis, obtained by rotating RM in-plane by psi.
   // psi = azimuth(Q) − azimuth(dispersion axis). Returns [FWHM_along, FWHM_E, tilt_deg].
-  function qeAlong(RM, psiDeg) {
+  // mode "slice" gives the Q⊥ = 0 cross-section instead of the (default) energy-integrated
+  // projection — same rotation, then the raw 2×2 submatrix rather than the Schur complement.
+  function qeAlong(RM, psiDeg, mode) {
     if (!RM) return null;
     var p = psiDeg * Math.PI / 180, c = Math.cos(p), s = Math.sin(p);
     var R = [[c, -s, 0], [s, c, 0], [0, 0, 1]], Rt = [[c, s, 0], [-s, c, 0], [0, 0, 1]];
@@ -557,7 +559,13 @@
     }
     var M = mm(mm(R, RM), Rt);                 // M' = R · RM · Rᵀ (E axis fixed)
     var F = 1.0 / Math.sqrt(8.0 * Math.log(2.0));
-    // project out the transverse axis (1): (axis0, E) ellipse
+    if (mode === "slice") {                    // (axis0, E) cross-section at transverse Q⊥ = 0
+      var sa = M[0][0], sb = M[2][2], sab = M[0][2];
+      var SV = 0.5 * Math.atan2(2 * sab, sa - sb), sc = Math.cos(SV), ss = Math.sin(SV), ssd = Math.sin(2 * SV);
+      return [1 / Math.sqrt(sa * sc * sc + sb * ss * ss + sab * ssd) / F,
+              1 / Math.sqrt(sa * ss * ss + sb * sc * sc - sab * ssd) / F, SV * 180 / Math.PI];
+    }
+    // default: project out the transverse axis (1) → (axis0, E) energy-integrated ellipse
     var a = M[0][0], b = M[2][2], ab = M[0][2], ac = M[0][1], bc = M[1][2], cc = M[1][1];
     var AP = a - ac * ac / cc, B = b - bc * bc / cc, C = ac * bc / cc - ab;
     var V = 0.5 * Math.atan2(-2 * C, AP - B), c2 = Math.cos(V), s2 = Math.sin(V), sd = Math.sin(2 * V);
