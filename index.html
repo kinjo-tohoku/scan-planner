@@ -347,7 +347,7 @@
       <h2 title="Flags scan points where a spurious (fake) peak is likely: mono/ana higher-order harmonics (n·ki ≈ m·kf), Currat-Axe accidental elastic Bragg processes, and Al/Cu powder rings from the cryostat / sample can.">Spurion check</h2>
       <div class="row" style="align-items:center;gap:8px">
         <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)">
-          <input type="checkbox" id="spurion" checked onchange="scheduleEval()" style="width:auto"> flag suspect points</label>
+          <input type="checkbox" id="spurion" onchange="scheduleEval()" style="width:auto"> flag suspect points</label>
         <span class="hint" style="margin:0" title="Tolerances: harmonic coincidence |n·ki−m·kf| < 2% of m·kf (n,m ≤ 3); position match |ΔQ| < 0.06 Å⁻¹ against the nuclear reflection list and Al(111/200/220/311) + Cu(111/200/220) rings. A PG filter reduces but does not remove harmonics.">λ/2·λ/3 · Currat-Axe · Al/Cu powder</span>
       </div>
     </div>
