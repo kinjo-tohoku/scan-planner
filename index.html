@@ -83,6 +83,14 @@
   .dropmask.show { display:flex; }
   .dropmask .box { font-size:18px; color:var(--ink); background:var(--panel);
                    padding:18px 28px; border-radius:10px; border:1px solid var(--line); }
+  #printsheet { display:none; }
+  @media print {
+    body.printing > :not(#printsheet) { display:none !important; }
+    body.printing #printsheet { display:block !important; color:#000; background:#fff; }
+    body.printing { background:#fff; }
+  }
+  .sheet-kv { width:100%; border-collapse:collapse; font-size:11px; margin-bottom:6px; }
+  .sheet-kv td { border:1px solid #bbb; padding:3px 6px; text-align:left; color:#000; white-space:normal; }
 </style>
 </head>
 <body>
@@ -97,9 +105,11 @@
   <div class="modal-inner">
     <div class="modal-head">
       <h2>Help &mdash; filman scan planner</h2>
-      <button class="sec modal-close" onclick="toggleHelp(false)">Close &times;</button>
+      <button class="sec preset" id="helplang" onclick="toggleHelpLang()" style="margin-left:auto">日本語</button>
+      <button class="sec" onclick="toggleHelp(false)">Close &times;</button>
     </div>
     <div class="modal-body">
+      <div id="help-en">
       <p>Plan a triple-axis scan in <b>(Q, E)</b>, check whether every point is
          <b>reachable</b> within the motor soft-limits, and export a filman
          <code>.scn</code> script. No resolution calculation; configuration is entered by hand.</p>
@@ -151,6 +161,56 @@
          filman is in-plane (h,k), so the scan <code>l</code> is ignored (out-of-plane = unreachable).
          The header comment prints the <b>AS/BS/CG</b> to set in filman for the current mount
          (they follow the plane: AS=|Q(u)|, BS=|Q(v)|, CG=cos&ang;).</p>
+
+      <h3>Extras</h3>
+      <ul>
+        <li><b>Resolution</b> &mdash; Cooper&ndash;Nathans ellipses at the scan centre (orange = slice, blue = projection); <b>click the plot</b> to probe the resolution anywhere.</li>
+        <li><b>Magnet</b> &mdash; window restriction for vertical/horizontal-field magnets (two lobes about the target reflection).</li>
+        <li><b>Spurion check</b> &mdash; &#9888; marks points suspect for &lambda;/2&middot;&lambda;/3 harmonics, Currat-Axe processes, or Al/Cu powder rings.</li>
+        <li><b>Experiment plan</b> &mdash; collect scans, see the total time, export one combined .scn. <b>Copy link</b> shares the full setup as a URL; <b>Plan sheet</b> prints a one-page summary.</li>
+      </ul>
+      </div>
+      <div id="help-ja" style="display:none">
+      <p>三軸分光器のスキャンを <b>(Q, E)</b> 空間で計画し、各点がモーターのソフトリミット内で<b>到達可能</b>かを確認して、filman の <code>.scn</code> スクリプトを書き出すツールです。分光器条件は手入力です。</p>
+
+      <h3>使い方の流れ</h3>
+      <ul>
+        <li><b>1. 試料</b> &mdash; 実格子 <span class="k">a,b,c,&alpha;,&beta;,&gamma;</span> と、散乱面を決める2つの規定反射 <span class="k">u, v</span>。</li>
+        <li><b>2. 分光器</b> &mdash; 固定側 <span class="k">ki/kf</span> とその値、アナライザ（PG002/PG004）。GPTAS の既定値が入っています。</li>
+        <li><b>3. ソフトリミット</b> &mdash; 試料回転 <span class="k">C2 (&omega;)</span>。<span class="k">A1</span>（モノクロ2&theta;）と <span class="k">A2</span>（試料2&theta;）は内部固定 [18,53]&deg;・[5,110]&deg;。</li>
+        <li><b>4. スキャン定義</b> &mdash; 単一ライン or マップ（下記）。</li>
+        <li><b>5. Evaluate</b> &rarr; 緑=到達可・赤&times;=不可。等E面ビューでは到達可能領域を背景に塗ります。<b>Generate .scn</b> で filman スクリプトを生成。</li>
+      </ul>
+
+      <h3>Start / End / &Delta; &mdash; NP は自動計算</h3>
+      <p>各軸に <b>start / end / 刻み &Delta;</b> を入れると、点数は <code>NP = floor((end &minus; start)/&Delta;) + 1</code>（&Delta;&ne;0 の軸）で決まります。&Delta;=0 の軸は start に固定（end は無視）。<b>NP</b> は入力欄の下に随時表示されます。</p>
+
+      <h3>マップの種類</h3>
+      <p>マップは<b>散乱面の方向 u, v</b>（規定反射）に沿って掃くので任意の面で使えます &mdash; 例: u=(1&nbsp;1&nbsp;0), v=(0&nbsp;0&nbsp;1) は HHL 面。<b>開始点</b>と、内側/外側それぞれの <b>extent + &Delta;</b> を与えます。既定 u=(1&nbsp;0&nbsp;0), v=(0&nbsp;1&nbsp;0) は通常の h&times;k マップ。</p>
+      <ul>
+        <li><b>Plane u&times;v (const E)</b> &mdash; 面内グリッド: 内側 sweep が <b>u</b> 方向、それを <b>v</b> 方向に1ステップずつずらして繰り返し。開始点は面内に置くこと。</li>
+        <li><b>Dispersion (along u/v) &times;E</b> &mdash; 内側は定Q の <b>E</b> スキャン、外側は <b>u</b> か <b>v</b> 方向（&ldquo;disperse along&rdquo; で選択）。横軸はその方向の換算座標 &xi;。</li>
+      </ul>
+      <p>各ラインが1つの <code>NS=</code> スキャンになり、まとめて <code>GO 1-N</code> で実行されます。</p>
+
+      <h3>到達領域への自動フィット</h3>
+      <p>ON のとき、到達不可能な点は<b>削除</b>され、各ラインは到達可能な区間に切り詰められます（途中に穴があれば分割）。サマリは例えば <code>reachable 62/62 &middot; 43 dropped</code> となり、削除点はプロットに薄い赤&times;で表示。OFF なら矩形全体を出力します。</p>
+
+      <h3>長いマップ &mdash; 40本ごとの GO ブロック</h3>
+      <p>filman は 1 回の <code>GO</code> に最大 <b>40</b> スキャン。それを超えるマップは、ブロックごとに <code>NS=1..40</code> を振り直して各々 <code>GO 1-40</code> を付けたブロック列として出力されます（1ファイルで全体が流せます）。</p>
+
+      <h3>生成される .scn</h3>
+      <p>格子・分光器・RS は測定前に設定&amp;調整済みという前提で<b>書き出しません</b>。出力はスキャン定義（<code>NS/HS/KS/ES/DE/DH/DK/NP/MN[/NT]</code>、カンマ区切り）と <code>GO</code> のみ。filman は面内 (H,K) 動作なので、スキャンの <code>l</code> は出ません（面外=到達不可）。ヘッダのコメントに、この<b>マウントで filman に設定すべき AS/BS/CG</b>（面依存: AS=|Q(u)|, BS=|Q(v)|, CG=cos&ang;）を出力します。</p>
+
+      <h3>そのほかの機能</h3>
+      <ul>
+        <li><b>分解能</b> &mdash; スキャン中心に Cooper&ndash;Nathans 楕円（橙=slice, 青=projection）。<b>プロットをクリック</b>するとその場所の分解能も確認できます。</li>
+        <li><b>マグネット</b> &mdash; 縦/横磁場マグネットの窓による到達制限（target reflection を中心とする2つのローブ）。</li>
+        <li><b>スプリオン検査</b> &mdash; &lambda;/2&middot;&lambda;/3 高次光・Currat-Axe・Al/Cu 粉末線の疑いのある点に &#9888; を表示。</li>
+        <li><b>Experiment plan</b> &mdash; 複数スキャンを溜めて合計時間を確認し、結合した1つの .scn を生成。</li>
+        <li><b>Copy link</b> &mdash; 全設定入りの URL をコピー（共同利用者との共有に）。<b>Plan sheet</b> で印刷用1枚シート。</li>
+      </ul>
+      </div>
     </div>
   </div>
 </div>
@@ -284,6 +344,15 @@
     </div>
 
     <div class="card">
+      <h2 title="Flags scan points where a spurious (fake) peak is likely: mono/ana higher-order harmonics (n·ki ≈ m·kf), Currat-Axe accidental elastic Bragg processes, and Al/Cu powder rings from the cryostat / sample can.">Spurion check</h2>
+      <div class="row" style="align-items:center;gap:8px">
+        <label style="flex-direction:row;align-items:center;gap:6px;color:var(--ink)">
+          <input type="checkbox" id="spurion" checked onchange="scheduleEval()" style="width:auto"> flag suspect points</label>
+        <span class="hint" style="margin:0" title="Tolerances: harmonic coincidence |n·ki−m·kf| < 2% of m·kf (n,m ≤ 3); position match |ΔQ| < 0.06 Å⁻¹ against the nuclear reflection list and Al(111/200/220/311) + Cu(111/200/220) rings. A PG filter reduces but does not remove harmonics.">λ/2·λ/3 · Currat-Axe · Al/Cu powder</span>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Scan definition</h2>
       <div class="row" style="margin-bottom:8px;align-items:center">
         <span class="hint" style="margin:0">scan type</span>
@@ -346,9 +415,26 @@
       </div>
     </div>
 
+    <div class="card">
+      <h2 title="Collect several scans (lines and/or maps) into one experiment plan: overlay them on the plot, see the total counting time, and export ONE combined .scn.">Experiment plan</h2>
+      <div class="row">
+        <button class="sec preset" onclick="planAdd()">&#65291; Add current scan</button>
+        <button class="sec preset" onclick="planClear()" title="Remove all scans from the plan">Clear</button>
+        <button class="sec preset" onclick="planExport()" title="One .scn with every scan in the plan (NS renumbered per 40-line GO block)">Combined .scn</button>
+      </div>
+      <div id="planlist" style="margin-top:6px"></div>
+      <div class="hint" id="plantotal" style="margin-top:4px"></div>
+    </div>
+
     <div class="btns">
       <button onclick="runEvaluate()">&#9654; Evaluate reachability</button>
       <button class="sec" onclick="exportScn()">Generate .scn</button>
+    </div>
+    <div class="btns" style="margin-top:8px">
+      <button class="sec" onclick="copyLink()" title="Copy a URL that reproduces this whole setup incl. the plan — share it with a collaborator or the instrument scientist.">&#128279; Copy link</button>
+      <button class="sec" onclick="printSheet()" title="One-page plan sheet (settings + plot + summary + .scn) for printing / PDF.">&#128424; Plan sheet</button>
+      <button class="sec" onclick="resetAll()" title="Clear the autosaved state and reload the defaults.">&#8634; Defaults</button>
+      <span id="copynote" class="hint" style="align-self:center;margin:0"></span>
     </div>
     <div id="err" class="err"></div>
   </div>
@@ -357,6 +443,7 @@
     <div class="card">
       <div id="summary" class="summary">&mdash; not evaluated yet &mdash;</div>
       <div id="plot"></div>
+      <div id="clickinfo" class="hint" style="margin-top:2px" title="Click anywhere on the map to probe the resolution there."></div>
       <div id="esttime" class="esttime" style="display:none"></div>
     </div>
     <div class="card">
@@ -620,18 +707,33 @@ async function api(path, body){
       ? P.evaluate_map(body.config, body.map, !!body.map.trim)
       : { scn: P.map_to_scn(body.config, body.map, !!body.map.trim) };
   }
+  if(ep==='plan_export'){
+    const items=(body.items||[]).slice(0,64);
+    items.forEach(it=>{
+      if(it && it.map){ it.map.npts=clampi(it.map.npts||1,1,MAX_NPTS); it.map.nlines=clampi(it.map.nlines||1,1,MAX_NLINES);
+        if(it.map.npts*it.map.nlines > MAX_MAP_PTS)
+          throw new Error(`plan: a map is too large: ${it.map.npts}×${it.map.nlines} points (max ${MAX_MAP_PTS})`); }
+      if(it && it.scan) it.scan.npts=clampi(it.scan.npts||1,1,MAX_NPTS);
+    });
+    return { scn: P.combined_to_scn(body.config, items) };
+  }
   throw new Error('unknown endpoint: '+ep);
 }
 function showErr(e){ $('err').textContent = e ? ('⚠ '+e) : ''; }
 
 async function evalScan(){
+  const cfg=getConfig();
+  await refreshPlan(cfg);                 // basket totals + overlay points (cheap, local)
   if(isMap()){
-    const res = await api('/api/map',{config:getConfig(), map:getMap()});
-    computeReso(res.lines.flatMap(l=>l.points));
+    const res = await api('/api/map',{config:cfg, map:getMap()});
+    const pts = res.lines.flatMap(l=>l.points);
+    computeReso(pts);
+    computeSpurions(pts, cfg);
     renderSummary(res); renderMapTable(res.lines); plotMap(res.lines, res.dropped);
   } else {
-    const res = await api('/api/evaluate',{config:getConfig(), scan:getScan()});
+    const res = await api('/api/evaluate',{config:cfg, scan:getScan()});
     computeReso(res.points);
+    computeSpurions(res.points, cfg);
     renderSummary(res); renderTable(res.points); plot(res.points);
   }
 }
@@ -675,6 +777,7 @@ function renderSummary(res){
   if(nd) s += ` &nbsp; <span class="bad">⌫ ${nd} dropped (auto-fit · outside reachable region)</span>`;
   if(res.n_lines > 40){ const nb=Math.ceil(res.n_lines/40);
     s += ` &nbsp; <span style="color:var(--mut)">→ ${nb} GO blocks of ≤40 (NS restarts each block)</span>`; }
+  if(lastSpurN) s += ` &nbsp; <span style="color:rgba(255,170,40,0.95)" title="possible spurious peaks — hover the ⚠ diamonds on the plot for the cause">⚠ ${lastSpurN} spurion-suspect</span>`;
   $('summary').innerHTML = s;
   // estimated measurement time, shown prominently on its own line below the summary.
   const rate=Math.max(num('mrate'),1e-6);
@@ -692,8 +795,8 @@ function renderMapTable(lines){
   const tb = $('tbl').querySelector('tbody'); tb.innerHTML='';
   lines.forEach((ln,li)=> ln.points.forEach((p,pi)=>{
     const a = p.angles||{};
-    const st = p.reachable ? '<span class="ok">✓</span>'
-                           : '<span class="bad">✗ '+(p.reason||'')+'</span>';
+    const st = (p.reachable ? '<span class="ok">✓</span>'
+                            : '<span class="bad">✗ '+(p.reason||'')+'</span>') + spurMark(p);
     const c = k => a[k]!==undefined ? a[k].toFixed(2) : '—';
     tb.insertAdjacentHTML('beforeend',
       `<tr><td>${li+1}.${pi+1}</td><td>${p.h}</td><td>${p.k}</td><td>${p.l}</td><td>${p.E}</td><td>${p.q!=null?p.q.toFixed(3):'—'}</td><td>${p.d!=null?p.d.toFixed(3):'—'}</td>`
@@ -705,9 +808,9 @@ function renderTable(pts){
   const tb = $('tbl').querySelector('tbody'); tb.innerHTML='';
   pts.forEach((p,i)=>{
     const a = p.angles||{};
-    const st = p.reachable
+    const st = (p.reachable
       ? '<span class="ok">✓</span>'
-      : '<span class="bad">✗ '+ (p.reason||'') +'</span>';
+      : '<span class="bad">✗ '+ (p.reason||'') +'</span>') + spurMark(p);
     const c = k => a[k]!==undefined ? a[k].toFixed(2) : '—';
     tb.insertAdjacentHTML('beforeend',
       `<tr><td>${i+1}</td><td>${p.h}</td><td>${p.k}</td><td>${p.l}</td><td>${p.E}</td><td>${p.q!=null?p.q.toFixed(3):'—'}</td><td>${p.d!=null?p.d.toFixed(3):'—'}</td>`
@@ -751,33 +854,35 @@ function ellipseBoundary(cx,cy,w,h,angDeg,n){
     x.push(cx+ex*ct-ey*st); y.push(cy+ex*st+ey*ct); }
   return {x,y};
 }
-function resoTrace(traces){
-  if(!lastReso) return;
-  const phi=Math.atan2(lastReso.qy,lastReso.qx)*180/Math.PI;   // Q∥ azimuth → lab frame
+function resoTrace(traces, R){          // R: optional probe state (click) — else the scan centre
+  const S=R||lastReso;
+  if(!S) return;
+  const phi=Math.atan2(S.qy,S.qx)*180/Math.PI;                  // Q∥ azimuth → lab frame
   const draw=(ell,label,color,dash)=>{                          // orange = slice, blue = projection
     if(!ell) return;
-    const e=ellipseBoundary(lastReso.qx,lastReso.qy,ell[0],ell[1],phi+ell[2]);
-    traces.push({x:e.x, y:e.y, mode:'lines', name:label, hoverinfo:'text',
-      text:`resolution FWHM ${ell[0].toFixed(3)} × ${ell[1].toFixed(3)} Å⁻¹ (${label}) @ E=${lastReso.E}`,
+    const e=ellipseBoundary(S.qx,S.qy,ell[0],ell[1],phi+ell[2]);
+    traces.push({x:e.x, y:e.y, mode:'lines', name:label, hoverinfo:'text', showlegend:R?false:undefined,
+      text:`resolution FWHM ${ell[0].toFixed(3)} × ${ell[1].toFixed(3)} Å⁻¹ (${label}) @ E=${S.E}`,
       line:{color:color, width:2, dash:dash}});
   };
-  draw(lastReso.Qplane_slice, 'slice (const E)', 'rgba(255,180,60,0.95)', 'solid');   // cross-section at E=0
-  draw(lastReso.Qplane,       'projection (∫E)', 'rgba(90,200,255,0.95)', 'dot');     // integrated over E
+  draw(S.Qplane_slice, 'slice (const E)', 'rgba(255,180,60,0.95)', 'solid');   // cross-section at E=0
+  draw(S.Qplane,       'projection (∫E)', 'rgba(90,200,255,0.95)', 'dot');     // integrated over E
 }
 // Resolution ellipse on the dispersion (ξ along the swept in-plane dir, E) plane → focusing
 // check. The QEplane ΔQ∥ is taken ALONG the dispersion direction d (= u or v) by rotating the
 // resolution matrix, then converted to r.l.u. of d via |B·d|, so off-symmetry / non-orthogonal
 // dispersions read the width and focusing tilt correctly. d = the swept reciprocal-lattice vector.
-function resoTraceQE(traces, d){
-  if(!lastReso || !lastReso.RM) return;
+function resoTraceQE(traces, d, R){     // R: optional probe state (click) — else the scan centre
+  const S=R||lastReso;
+  if(!S || !S.RM) return;
   const qd = Planner.qxy(getConfig(), d);           // Q-vector of the swept direction d
   const conv = Math.hypot(qd.qx, qd.qy);            // |B·d| = Å⁻¹ per 1 r.l.u. of d
   if(!(conv>0)) return;
   const beta = Math.atan2(qd.qy, qd.qx)*180/Math.PI;          // azimuth of the dispersion axis
-  const phi = Math.atan2(lastReso.qy, lastReso.qx)*180/Math.PI;
+  const phi = Math.atan2(S.qy, S.qx)*180/Math.PI;
   const dd=d[0]*d[0]+d[1]*d[1]+d[2]*d[2]||1;
-  const cx=(lastReso.h*d[0]+lastReso.k*d[1]+lastReso.l*d[2])/dd;   // ξ of the centre
-  const cy=lastReso.E;
+  const cx=(S.h*d[0]+S.k*d[1]+S.l*d[2])/dd;                   // ξ of the centre
+  const cy=S.E;
   // GPTAS Q–E sign convention: the reference draws the energy-momentum ellipse at angle = −a2
   // (negated), opposite to the Q-plane (+a1) — so the focusing tilt points the GPTAS-correct way.
   const drawQE=(ell,label,color,dash)=>{
@@ -786,12 +891,12 @@ function resoTraceQE(traces, d){
     const th=ang*Math.PI/180, ct=Math.cos(th), st=Math.sin(th), xs=[], ys=[];
     for(let i=0;i<=64;i++){ const t=2*Math.PI*i/64, ex=a*Math.cos(t), ey=b*Math.sin(t);
       xs.push(cx + (ex*ct-ey*st)/conv); ys.push(cy + (ex*st+ey*ct)); }
-    traces.push({x:xs, y:ys, mode:'lines', name:label, hoverinfo:'text',
+    traces.push({x:xs, y:ys, mode:'lines', name:label, hoverinfo:'text', showlegend:R?false:undefined,
       text:`resolution FWHM ΔQ∥=${w.toFixed(3)} Å⁻¹, ΔE=${h.toFixed(3)} meV (${label})`,
       line:{color:color, width:2, dash:dash}});
   };
-  const proj  = Planner.qeAlong(lastReso.RM, phi - beta, 'proj');   // energy-integrated footprint
-  const slice = Planner.qeAlong(lastReso.RM, phi - beta, 'slice');  // Q⊥ = 0 cross-section
+  const proj  = Planner.qeAlong(S.RM, phi - beta, 'proj');    // energy-integrated footprint
+  const slice = Planner.qeAlong(S.RM, phi - beta, 'slice');   // Q⊥ = 0 cross-section
   // Focusing direction = the PROJECTION ellipse LONG axis (ΔE). Its slope [meV/r.l.u.] is the
   // scale-invariant quantity to match against the dispersion: same sign ⇒ focused. (Tilt in
   // degrees looks tiny only because Q and E axes use different units — the slope is what matters.)
@@ -802,7 +907,7 @@ function resoTraceQE(traces, d){
                                                            : `${slope>0?'+':''}${slope.toFixed(0)} meV/r.l.u.`;
     const ux=-st/conv, uy=ct, L=proj[1]*0.9;   // half-length ~0.9·ΔE along the long axis
     traces.push({x:[cx-L*ux,cx+L*ux], y:[cy-L*uy,cy+L*uy], mode:'lines', name:'focusing dir',
-      hoverinfo:'text', text:`focusing direction ${slopeTxt}`,
+      hoverinfo:'text', text:`focusing direction ${slopeTxt}`, showlegend:R?false:undefined,
       line:{color:'rgba(90,200,255,0.55)', width:1, dash:'dot'}});
   }
   drawQE(slice, 'slice (const Q⊥)', 'rgba(255,180,60,0.95)', 'solid');   // thin cross-section
@@ -876,6 +981,7 @@ function magnetIcon(cfg, qmax){
 function plotHK(pts){
   // In-plane scattering plane drawn in Cartesian (Qx,Qy) [Å⁻¹]. Points carry both
   // crystallographic (h,k,l) (shown in hover) and qx,qy (plot coordinates).
+  lastPlotCall={fn:'hk', pts}; lastView='qq'; lastViewE=pts.length?+pts[0].E:0;
   const traces=[];
   if(lastGrid){
     traces.push({type:'heatmap', x:lastGrid.qx, y:lastGrid.qy, z:lastGrid.z,
@@ -884,6 +990,7 @@ function plotHK(pts){
                   [0.5,'rgba(46,160,67,0.22)'],[1,'rgba(46,160,67,0.22)']], zmin:0, zmax:1});
   }
   reflTrace(traces);
+  planTrace(traces, p=>p.qx, p=>p.qy);
   const ok={x:[],y:[],t:[]}, bad={x:[],y:[],t:[]};
   pts.forEach((p,i)=>{ const d=p.reachable?ok:bad;
     d.x.push(p.qx); d.y.push(p.qy); d.t.push(hover(p,i,`(${p.h},${p.k},${p.l}) E=${p.E}`)); });
@@ -893,18 +1000,22 @@ function plotHK(pts){
     marker:{color:'#2ea043',size:9,line:{color:'#fff',width:0.5}}});
   traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
     marker:{color:'#f85149',size:10,symbol:'x'}});
+  spurTrace(traces, pts, p=>p.qx, p=>p.qy);
   resoTrace(traces);
+  if(clickReso && clickReso.mode==='qq'){ resoTrace(traces, clickReso.state); probeTrace(traces); }
   const ax = hkAxes(lastGrid?lastGrid.qx:pts.map(p=>p.qx),
                     lastGrid?lastGrid.qy:pts.map(p=>p.qy), 'Qx [Å⁻¹]', 'Qy [Å⁻¹]');
   const layout = Object.assign({},PLOT_BASE,ax);
   const ic = magnetIcon(getConfig(), lastGrid?lastGrid.qx[lastGrid.qx.length-1]:0);
   ic.traces.forEach(t=>traces.push(t)); if(ic.ann.length) layout.annotations = ic.ann;
   Plotly.react('plot',traces,layout,PLOT_CFG);
+  bindPlotClick();
 }
 
 function plot1D(pts, axis){
   // x = swept amount, y = A2 (scattering angle). Green/red + A2 limit lines, so an
   // energy scan does not collapse to a single column.
+  lastPlotCall={fn:'1d', pts, axis}; lastView='1d';
   const ok={x:[],y:[],t:[]}, bad={x:[],y:[],t:[]};
   pts.forEach((p,i)=>{ const d=p.reachable?ok:bad; const a=p.angles||{};
     d.x.push(p[axis]); d.y.push(a.A2!==undefined?a.A2:0);   // no angles at all (triangle fails etc.) → baseline 0, keep the ✗ visible
@@ -917,6 +1028,7 @@ function plot1D(pts, axis){
     {x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
      marker:{color:'#f85149',size:10,symbol:'x'}}
   ];
+  spurTrace(traces, pts, p=>p[axis], p=>(p.angles&&p.angles.A2!==undefined)?p.angles.A2:0);
   const xs=pts.map(p=>p[axis]), xmin=amin(xs), xmax=amax(xs);
   const lim=getConfig().limits.A2;
   lim.forEach(L=> traces.push({x:[xmin,xmax],y:[L,L],mode:'lines',name:'A2 limit',
@@ -925,6 +1037,7 @@ function plot1D(pts, axis){
     xaxis:{title:axis+(axis==='E'?' [meV]':''), gridcolor:'#30363d', zerolinecolor:'#444'},
     yaxis:{title:'A2 scattering 2θ [°] (red dotted = limit)', gridcolor:'#30363d', zerolinecolor:'#444'}
   }),PLOT_CFG);
+  bindPlotClick();
 }
 
 // Parametric x-axis label for a dispersion map: the running (h,k,l) along the swept direction,
@@ -947,12 +1060,18 @@ function dispAxisLabel(lines, d, dd){
 }
 function plotMap(lines, dropped){
   // Scatter all points. If E is constant → (h,k) plane, else → (swept Q, E) plane.
+  lastPlotCall={fn:'map', lines, dropped};
   const all=[]; lines.forEach(ln=>ln.points.forEach(p=>all.push(p)));
   const span=c=>{const v=all.map(p=>p[c]); return amax(v)-amin(v);};
   const vE=span('E')>1e-9;
   // const-E → (Qx,Qy) [Å⁻¹] plane; dispersion → (ξ along the swept in-plane dir, E).
   const bg=!vE;
   const dvec=dispVec(), dd=dvec[0]*dvec[0]+dvec[1]*dvec[1]+dvec[2]*dvec[2]||1;
+  if(bg){ lastView='qq'; lastViewE=all.length?+all[0].E:0; }
+  else {  lastView='qe'; lastDispVec=dvec;
+    if(all.length){ const p=all[0], xi0=(p.h*dvec[0]+p.k*dvec[1]+p.l*dvec[2])/dd;
+      lastDispOffset=[p.h-xi0*dvec[0], p.k-xi0*dvec[1], p.l-xi0*dvec[2]]; }
+    else lastDispOffset=null; }
   const xval = bg ? (p=>p.qx) : (p=>(p.h*dvec[0]+p.k*dvec[1]+p.l*dvec[2])/dd);   // ξ = reduced coord along d
   const yval = bg ? (p=>p.qy) : (p=>p.E);
   const xlabel = bg ? 'Qx [Å⁻¹]' : dispAxisLabel(lines, dvec, dd);
@@ -965,6 +1084,7 @@ function plotMap(lines, dropped){
                   [0.5,'rgba(46,160,67,0.22)'],[1,'rgba(46,160,67,0.22)']], zmin:0, zmax:1});
   }
   if(bg) reflTrace(traces);
+  if(bg) planTrace(traces, p=>p.qx, p=>p.qy);
   lines.forEach(ln=> traces.push({x:ln.points.map(xval), y:ln.points.map(yval),
     mode:'lines', line:{color:'rgba(139,152,165,0.4)',width:1}, hoverinfo:'skip', showlegend:false}));
   if(dropped && dropped.length){    // points dropped by auto-fit (reference)
@@ -979,7 +1099,12 @@ function plotMap(lines, dropped){
     marker:{color:'#2ea043',size:8,line:{color:'#fff',width:0.5}}});
   traces.push({x:bad.x,y:bad.y,mode:'markers',name:'unreachable',text:bad.t,hoverinfo:'text',
     marker:{color:'#f85149',size:9,symbol:'x'}});
+  spurTrace(traces, all, xval, yval);
   if(bg) resoTrace(traces); else resoTraceQE(traces, dvec);
+  if(clickReso){
+    if(bg && clickReso.mode==='qq'){ resoTrace(traces, clickReso.state); probeTrace(traces); }
+    else if(!bg && clickReso.mode==='qe'){ resoTraceQE(traces, dvec, clickReso.state); probeTrace(traces); }
+  }
   let layout;
   if(bg){   // const-E plane → centered square (Qx,Qy) with true aspect
     layout=Object.assign({},PLOT_BASE, hkAxes(
@@ -995,12 +1120,15 @@ function plotMap(lines, dropped){
     ic.traces.forEach(t=>traces.push(t)); if(ic.ann.length) layout.annotations=(layout.annotations||[]).concat(ic.ann);
   }
   Plotly.react('plot',traces,layout,PLOT_CFG);
+  bindPlotClick();
 }
 async function runEvaluate(){
   // One action: compute the reachable-region background (in Qx,Qy), then evaluate
   // + plot the scan on top of it. The region shading shows on constant-E plane
   // views; energy/dispersion views draw the 1D / Q-E plot instead.
   showErr('');
+  saveState();                                     // autosave — also what the share link carries
+  clickReso=null; if($('clickinfo')) $('clickinfo').textContent='';
   try{
     const e = isMap() ? getMap().start[3] : getScan().start[3];
     const cfg = getConfig();
@@ -1030,6 +1158,327 @@ function downloadScn(){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
   a.download='scan.scn'; a.click();
 }
+const escHtml=s=>String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// --- spurion checker -----------------------------------------------------------
+// Flags reachable points where a spurious peak is likely. Three classes:
+//  (1) harmonics — mono/ana also pass n·ki / m·kf (PG002 → 004, 006). When n·ki ≈ m·kf a
+//      SAMPLE Bragg reflection can feed the analyzer elastically: G ≈ n·ki·(û_i − û_f);
+//  (2) Currat-Axe — accidental elastic Bragg with the nominal ki or kf (incoherent
+//      processes at the other element complete it): G ≈ k·(û_i − û_f), k = ki, kf;
+//  (3) Al / Cu powder rings (cryostat, sample can): |k·(û_i − û_f)| ≈ 2π/d_powder.
+// û_i = Q̂ rotated by −α (α = ∠(ki,Q)) — the sense validated against the magnet-window
+// geometry (sense_s = +1). p.spur = list of cause strings; lastSpurN = flagged count.
+const SPUR_KTOL=0.02, SPUR_QTOL=0.06;           // |n·ki−m·kf| < 2%·m·kf ; |ΔQ| < 0.06 Å⁻¹
+const POWDER=[['Al 111',2.338],['Al 200',2.024],['Al 220',1.431],['Al 311',1.221],
+              ['Cu 111',2.087],['Cu 200',1.808],['Cu 220',1.278]];
+let lastSpurN=0;
+function reflHash(refl){
+  const s=SPUR_QTOL*2, H=new Map();
+  for(const r of refl){ const key=Math.round(r.qx/s)+','+Math.round(r.qy/s);
+    if(!H.has(key)) H.set(key,[]);
+    H.get(key).push(r); }
+  return {H, s};
+}
+function reflNear(RH, gx, gy){
+  const cx=Math.round(gx/RH.s), cy=Math.round(gy/RH.s);
+  for(let a=-1;a<=1;a++) for(let b=-1;b<=1;b++){
+    const lst=RH.H.get((cx+a)+','+(cy+b)); if(!lst) continue;
+    for(const r of lst) if(Math.hypot(gx-r.qx, gy-r.qy)<SPUR_QTOL) return r;
+  }
+  return null;
+}
+function computeSpurions(pts, cfg){
+  lastSpurN=0;
+  pts.forEach(p=>{ delete p.spur; });
+  if(!$('spurion') || !$('spurion').checked) return;
+  if(typeof Planner==='undefined' || !Planner.reflections) return;   // server build: feature off
+  cfg=cfg||getConfig();
+  const kf0=Math.abs(+cfg.kfix);
+  if(!(kf0>0) || pts.length>20000) return;
+  // reflection list wide enough for 3rd-harmonic |G| = 3k·|û_i−û_f| ≤ 6k
+  let k2max=kf0*kf0;
+  for(const p of pts){ if(!p.reachable) continue;
+    const k2=(cfg.fixed==='ki')? kf0*kf0 : kf0*kf0+0.48261*(+p.E);
+    if(k2>k2max) k2max=k2; }
+  let RH; try{ RH=reflHash(Planner.reflections(cfg, Math.min(30, 6*Math.sqrt(k2max)+0.5))); }
+  catch(e){ return; }
+  for(const p of pts){
+    if(!p.reachable || !p.angles || !(p.q>1e-6)) continue;
+    const E=+p.E;
+    const ki2=(cfg.fixed==='ki')? kf0*kf0 : kf0*kf0+0.48261*E;
+    const kf2=(cfg.fixed==='ki')? kf0*kf0-0.48261*E : kf0*kf0;
+    if(!(ki2>0) || !(kf2>0)) continue;
+    const ki=Math.sqrt(ki2), kf=Math.sqrt(kf2);
+    // beam unit vectors in the in-plane frame: û_i = Q̂ rotated by −α; kf·û_f = ki·û_i − Q
+    const qhx=p.qx/p.q, qhy=p.qy/p.q;
+    const ca=Math.max(-1,Math.min(1,(p.q*p.q+ki*ki-kf*kf)/(2*ki*p.q))), sa=Math.sqrt(Math.max(0,1-ca*ca));
+    const uix=ca*qhx+sa*qhy, uiy=-sa*qhx+ca*qhy;
+    const ufx=(ki*uix-p.qx)/kf, ufy=(ki*uiy-p.qy)/kf;
+    const Vx=uix-ufx, Vy=uiy-ufy;
+    // processes whose elastic Bragg/powder condition to test: harmonic coincidences + CA
+    const tests=[];
+    for(let n=1;n<=3;n++) for(let m=1;m<=3;m++){
+      if(n===1 && m===1) continue;
+      if(Math.abs(n*ki-m*kf)<=SPUR_KTOL*m*kf) tests.push({k:n*ki, label:`λ-harmonic ${n}ki≈${m}kf`, skipSelf:false});
+    }
+    tests.push({k:ki, label:'Currat-Axe (elastic w/ ki)', skipSelf:true});
+    tests.push({k:kf, label:'Currat-Axe (elastic w/ kf)', skipSelf:true});
+    const warn=[];
+    for(const t of tests){
+      const gx=t.k*Vx, gy=t.k*Vy;
+      // near E=0 the (1,1)-elastic condition IS the intended Bragg point — not a spurion
+      if(t.skipSelf && Math.abs(E)<0.25 && Math.hypot(gx-p.qx,gy-p.qy)<SPUR_QTOL) continue;
+      const r=reflNear(RH, gx, gy);
+      if(r) warn.push(`${t.label} on (${r.h} ${r.k} ${r.l})`);
+      const g=Math.hypot(gx,gy);
+      for(const [nm,dsp] of POWDER)
+        if(Math.abs(g-2*Math.PI/dsp)<SPUR_QTOL){ warn.push(`${nm} ring (${t.label})`); break; }
+    }
+    if(warn.length){ p.spur=[...new Set(warn)]; lastSpurN++; }
+  }
+}
+function spurTrace(traces, pts, xf, yf){
+  const s=(pts||[]).filter(p=>p.spur && p.spur.length);
+  if(!s.length) return;
+  traces.push({x:s.map(xf), y:s.map(yf), mode:'markers', name:'⚠ spurion?',
+    text:s.map(p=>'⚠ '+p.spur.join('<br>⚠ ')), hoverinfo:'text',
+    marker:{color:'rgba(255,170,40,0.95)', size:13, symbol:'diamond-open', line:{width:2}}});
+}
+function spurMark(p){
+  return (p.spur && p.spur.length) ? ` <span style="color:#fa4" title="${escHtml(p.spur.join('; '))}">⚠</span>` : '';
+}
+
+// --- click-for-resolution --------------------------------------------------------
+// Click anywhere on the Q-Q / dispersion view → resolution ellipses + numbers there.
+let lastPlotCall=null, lastView='qq', lastViewE=0, lastDispVec=null, lastDispOffset=null;
+let clickReso=null;   // {mode:'qq'|'qe', px, py, state:{...like lastReso}}
+const r4c=x=>Math.round(x*1e4)/1e4;
+function probeTrace(traces){
+  traces.push({x:[clickReso.px], y:[clickReso.py], mode:'markers', name:'probe', showlegend:false,
+    marker:{color:'#fff', size:10, symbol:'cross-thin', line:{width:1.5, color:'#fff'}}, hoverinfo:'skip'});
+}
+function replot(){
+  if(!lastPlotCall) return;
+  if(lastPlotCall.fn==='hk') plotHK(lastPlotCall.pts);
+  else if(lastPlotCall.fn==='map') plotMap(lastPlotCall.lines, lastPlotCall.dropped);
+  else if(lastPlotCall.fn==='1d') plot1D(lastPlotCall.pts, lastPlotCall.axis);
+}
+function bindPlotClick(){
+  const el=$('plot');
+  if(el && el.on && !el._clickBound){ el._clickBound=true; el.on('plotly_click', onPlotClick); }
+}
+function onPlotClick(ev){
+  if(typeof Planner==='undefined' || !Planner.resolution) return;   // server build
+  if(!ev || !ev.points || !ev.points.length) return;
+  const x=+ev.points[0].x, y=+ev.points[0].y, info=$('clickinfo'), cfg=getConfig();
+  try{
+    if(lastView==='qq'){
+      const Q=Math.hypot(x,y);
+      const ell=(Q>1e-6)?Planner.resolution(cfg, Q, lastViewE, getCollim()):null;
+      if(!ell){ if(info) info.textContent=`⌖ |Q|=${Q.toFixed(3)} Å⁻¹ @E=${lastViewE}: resolution not defined here`; return; }
+      clickReso={mode:'qq', px:x, py:y, state:Object.assign({qx:x, qy:y, q:Q, E:lastViewE}, ell)};
+      if(info) info.innerHTML=
+        `⌖ (Qx,Qy)=(${x.toFixed(3)}, ${y.toFixed(3)}) |Q|=${Q.toFixed(3)} Å⁻¹ @E=${lastViewE} — `+
+        `slice ${ell.Qplane_slice[0].toFixed(3)}×${ell.Qplane_slice[1].toFixed(3)} Å⁻¹ · `+
+        `proj ${ell.Qplane[0].toFixed(3)}×${ell.Qplane[1].toFixed(3)} Å⁻¹ · ΔE(proj)=${ell.QEplane[1].toFixed(3)} meV`;
+      replot();
+    } else if(lastView==='qe'){
+      if(!lastDispVec || !lastDispOffset) return;
+      const d=lastDispVec, c=lastDispOffset;
+      const hkl=[c[0]+x*d[0], c[1]+x*d[1], c[2]+x*d[2]];
+      const q=Planner.qxy(cfg, hkl);
+      const ell=(q.q>1e-6)?Planner.resolution(cfg, q.q, y, getCollim()):null;
+      if(!ell){ if(info) info.textContent=`⌖ ξ=${x.toFixed(3)}, E=${y.toFixed(2)} meV: resolution not defined here`; return; }
+      clickReso={mode:'qe', px:x, py:y,
+        state:Object.assign({qx:q.qx, qy:q.qy, h:r4c(hkl[0]), k:r4c(hkl[1]), l:r4c(hkl[2]), q:q.q, E:y}, ell)};
+      const qdv=Planner.qxy(cfg, d), beta=Math.atan2(qdv.qy,qdv.qx)*180/Math.PI;
+      const phi=Math.atan2(q.qy,q.qx)*180/Math.PI;
+      const pr=Planner.qeAlong(ell.RM, phi-beta, 'proj'), sl=Planner.qeAlong(ell.RM, phi-beta, 'slice');
+      if(info && pr && sl) info.innerHTML=
+        `⌖ Q=(${hkl.map(t=>t.toFixed(3)).join(', ')}) E=${y.toFixed(2)} meV — `+
+        `slice ΔQ=${sl[0].toFixed(3)} Å⁻¹, ΔE=${sl[1].toFixed(3)} meV · proj ΔQ=${pr[0].toFixed(3)} Å⁻¹, ΔE=${pr[1].toFixed(3)} meV`;
+      replot();
+    } else if(lastView==='1d' && lastPlotCall && lastPlotCall.pts){
+      const pts=lastPlotCall.pts, ax=lastPlotCall.axis;
+      let best=null, bd=Infinity;
+      for(const p of pts){ const w=Math.abs(p[ax]-x); if(w<bd){ bd=w; best=p; } }
+      if(!best || !(best.q>1e-6)) return;
+      const E=(ax==='E')? x : +best.E;
+      const ell=Planner.resolution(cfg, best.q, E, getCollim());
+      if(ell && info) info.innerHTML=
+        `⌖ |Q|=${best.q.toFixed(3)} Å⁻¹, E=${(+E).toFixed(2)} meV — `+
+        `ΔE(proj)=${ell.QEplane[1].toFixed(3)} meV · ΔQ∥(slice)=${ell.Qplane_slice[0].toFixed(3)} Å⁻¹`;
+    }
+  }catch(e){ if(info) info.textContent='⌖ '+e.message; }
+}
+
+// --- experiment plan (scan basket) ------------------------------------------------
+let plan=[], planPts=[];
+function planAdd(){
+  const f3=v=>v.map(x=>{const r=Math.round(x*1000)/1000; return Object.is(r,-0)?0:r;}).join(',');
+  let it;
+  if(isMap()){ const md=getMap();
+    it={kind:'map', map:md, trim:!!md.trim,
+        label:`map ${mapType()==='disp'?'Q-E':'u×v'} start=(${f3(md.start)}) ${computeNlines()}×${innerCount()}pts MN=${md.monitor}`}; }
+  else { const sc=getScan();
+    it={kind:'line', scan:sc, label:`line (${f3(sc.start)}) Δ=(${f3(sc.step)}) ${sc.npts}pts MN=${sc.monitor}`}; }
+  plan.push(it); renderPlan(); scheduleEval();
+}
+function planDel(i){ plan.splice(i,1); renderPlan(); scheduleEval(); }
+function planClear(){ plan=[]; planPts=[]; renderPlan(); scheduleEval(); }
+function renderPlan(){
+  const el=$('planlist'); if(!el) return;
+  el.innerHTML = plan.length? '' :
+    '<span class="hint">empty — set up a scan above, then “＋ Add current scan”.</span>';
+  plan.forEach((it,i)=>{
+    el.insertAdjacentHTML('beforeend',
+      `<div class="row" style="align-items:center;gap:6px;margin-top:2px;font:11px monospace;flex-wrap:nowrap">
+         <span style="color:var(--mut)">${i+1}.</span>
+         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.label||it.kind)}</span>
+         <button class="sec preset" onclick="planDel(${i})" title="remove">✕</button></div>`);
+  });
+}
+async function refreshPlan(cfg){
+  planPts=[]; const el=$('plantotal');
+  if(!plan.length){ if(el) el.textContent=''; return; }
+  try{
+    let nok=0, ntot=0, secs=0;
+    const rate=Math.max(num('mrate'),1e-6);
+    for(const it of plan){
+      const r = it.kind==='map' ? await api('/api/map',{config:cfg, map:it.map})
+                                : await api('/api/evaluate',{config:cfg, scan:it.scan});
+      planPts.push(...(it.kind==='map' ? r.lines.flatMap(l=>l.points) : r.points));
+      nok+=r.n_reachable; ntot+=r.n_total;
+      const mn = it.kind==='map' ? it.map.monitor : it.scan.monitor;
+      secs += r.n_reachable*(mn/rate+10);
+    }
+    if(el) el.innerHTML=`plan total: <b>${plan.length}</b> scans · reachable <b>${nok}</b>/${ntot} pts · ⏱ <b>${fmtDur(secs)}</b>`;
+  }catch(e){ if(el) el.textContent='plan: '+e.message; }
+}
+function planTrace(traces, xf, yf){
+  if(!planPts.length) return;
+  traces.push({x:planPts.map(xf), y:planPts.map(yf), mode:'markers', name:'plan scans',
+    marker:{color:'rgba(88,166,255,0.45)', size:5}, hoverinfo:'skip'});
+}
+async function planExport(){
+  showErr('');
+  if(!plan.length){ showErr('plan is empty — add scans first'); return; }
+  try{
+    const res=await api('/api/plan_export',{config:getConfig(),
+      items:plan.map(it=>({kind:it.kind, scan:it.scan, map:it.map, trim:it.trim}))});
+    $('scn').value=res.scn;
+  }catch(e){ showErr(e.message); }
+}
+
+// --- state: autosave, share link, defaults -----------------------------------------
+const STATE_KEY='filman-planner-v1';
+function stateIds(){
+  return Array.from(document.querySelectorAll('.left input[id], .left select[id]'))
+    .filter(el=>el.type!=='file').map(el=>el.id);
+}
+function getState(){
+  const f={};
+  stateIds().forEach(id=>{ const el=$(id); f[id]= el.type==='checkbox' ? !!el.checked : el.value; });
+  return {v:1, f, plan};
+}
+// Re-apply raw field values, then resync the derived UI WITHOUT the value-resetting
+// setScanType()/setMagType() paths (they would clobber the restored numbers).
+function syncScanTypeUI(){
+  const m=isMap();
+  $('mapfields').style.display=m?'block':'none';
+  $('mapinner').style.display=m?'':'none';
+  $('endrow').style.display=m?'none':'';
+  $('steprow').style.display=m?'none':'';
+  if($('presetrow')) $('presetrow').style.display=m?'none':'flex';
+  if(m){
+    const isDisp=mapType()==='disp';
+    if($('disprow')) $('disprow').style.display=isDisp?'flex':'none';
+    if(!isDisp){
+      $('iextlab').textContent='extent along u'; $('isteplab').textContent='Δ along u';
+      $('oendlab').textContent='extent along v'; $('ostplab').textContent='Δ along v';
+      $('maphint').textContent=`Inner: sweep along u=${fmtv(planeU())}. Outer: shift along v=${fmtv(planeV())}. Start must lie in the plane.`;
+    } else {
+      const nm=dispDir();
+      $('iextlab').textContent='E extent'; $('isteplab').textContent='ΔE';
+      $('oendlab').textContent='extent along '+nm; $('ostplab').textContent='Δ along '+nm;
+      $('maphint').textContent=`Inner: sweep E by ΔE (const Q). Outer: shift along ${nm}=${fmtv(dispVec())}.`;
+    }
+  }
+  onScanInput();
+}
+function applyState(st){
+  if(!st || st.v!==1 || !st.f) return false;
+  stateIds().forEach(id=>{ if(Object.prototype.hasOwnProperty.call(st.f, id)){ const el=$(id);
+    if(el.type==='checkbox') el.checked=!!st.f[id]; else el.value=st.f[id]; } });
+  if(Array.isArray(st.plan))
+    plan = st.plan.filter(it=>it && ((it.kind==='line'&&it.scan)||(it.kind==='map'&&it.map))).slice(0,64);
+  updateLattice(); setResConfig(); syncScanTypeUI();
+  if($('magtype') && $('magrow')) $('magrow').style.opacity = $('magtype').value!=='none' ? '1':'0.5';
+  renderPlan();
+  return true;
+}
+function saveState(){ try{ localStorage.setItem(STATE_KEY, JSON.stringify(getState())); }catch(e){} }
+function b64uEnc(s){ return btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function b64uDec(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; return decodeURIComponent(escape(atob(s))); }
+function copyLink(){
+  const h='#cfg='+b64uEnc(JSON.stringify(getState()));
+  const url=location.href.split('#')[0]+h;
+  try{ history.replaceState(null,'',h); }catch(e){}
+  const note=$('copynote');
+  const ok=()=>{ if(note){ note.textContent='✓ link copied'; setTimeout(()=>{ note.textContent=''; }, 3000); } };
+  const fb=()=>{ try{ window.prompt('Copy this link:', url); }catch(e){} };
+  try{ navigator.clipboard.writeText(url).then(ok, ()=>{ fb(); ok(); }); }catch(e){ fb(); ok(); }
+}
+function resetAll(){
+  try{ localStorage.removeItem(STATE_KEY); }catch(e){}
+  try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
+  location.reload();
+}
+
+// --- printable one-page plan sheet ---------------------------------------------------
+async function printSheet(){
+  const sheet=$('printsheet'); if(!sheet) return;
+  const cfg=getConfig();
+  let img='';
+  try{ img=await Plotly.toImage($('plot'), {format:'png', width:940, height:540}); }catch(e){}
+  const magTxt = cfg.magnet.on
+    ? ($('magtype').value==='60'?'vertical':'horizontal')+' ±'+cfg.magnet.half_deg+'° @ '+fmtv(cfg.magnet.ref)
+    : 'none';
+  sheet.innerHTML =
+    `<h1 style="font-size:18px;margin:0 0 2px">filman scan planner — experiment plan</h1>
+     <div style="color:#555;font-size:11px;margin-bottom:8px">${new Date().toLocaleString()} · GPTAS (4G, JRR-3)</div>
+     <table class="sheet-kv">
+       <tr><td>a, b, c [Å] = ${cfg.a}, ${cfg.b}, ${cfg.c}</td>
+           <td>α, β, γ [°] = ${cfg.alpha}, ${cfg.beta}, ${cfg.gamma}</td>
+           <td>plane u=${fmtv(cfg.plane_u)} v=${fmtv(cfg.plane_v)}</td></tr>
+       <tr><td>filman AS=${$('astar').value} BS=${$('bstar').value} CG=${$('cgs').value}</td>
+           <td>fixed ${cfg.fixed} = ${cfg.kfix} Å⁻¹ · ana ${Math.abs(cfg.d_ana-3.355)<0.01?'PG002':'PG004'}</td>
+           <td>C2 ∈ [${cfg.limits.C2[0]}, ${cfg.limits.C2[1]}]° · magnet ${magTxt}</td></tr>
+     </table>
+     ${img?`<img src="${img}" style="width:100%;max-width:940px;border:1px solid #ccc">`:''}
+     <div style="font-size:12px;margin:6px 0">${$('summary').innerHTML}
+       ${$('esttime')&&$('esttime').style.display!=='none'?' · '+$('esttime').innerHTML:''}
+       ${$('plantotal')&&$('plantotal').innerHTML?' · '+$('plantotal').innerHTML:''}</div>
+     ${$('scn').value?`<h2 style="font-size:13px;margin:8px 0 2px">.scn</h2>
+       <pre style="font:10px monospace;white-space:pre-wrap;border:1px solid #ccc;padding:6px;color:#000">${escHtml($('scn').value)}</pre>`:''}`;
+  document.body.classList.add('printing');
+  const done=()=>{ document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  window.print();
+  setTimeout(done, 3000);   // fallback if afterprint never fires
+}
+
+// --- help language (EN / 日本語) ------------------------------------------------------
+function helpLang(){ try{ return localStorage.getItem('planner-helplang')||'en'; }catch(e){ return 'en'; } }
+function setHelpLang(l){
+  try{ localStorage.setItem('planner-helplang', l); }catch(e){}
+  const en=$('help-en'), ja=$('help-ja'), b=$('helplang');
+  if(en) en.style.display = (l==='ja') ? 'none' : '';
+  if(ja) ja.style.display = (l==='ja') ? '' : 'none';
+  if(b) b.textContent = (l==='ja') ? 'English' : '日本語';
+}
+function toggleHelpLang(){ setHelpLang(helpLang()==='ja' ? 'en' : 'ja'); }
 
 // --- live auto-evaluate: re-run shortly after any input change (computation is
 //     fast). Skipped while inputs are empty/mid-edit/invalid, so typing is smooth.
@@ -1047,7 +1496,14 @@ function scheduleEval(){
   const left=document.querySelector('.left');
   left.addEventListener('input', ()=>{ updateLattice(); scheduleEval(); });   // typing
   left.addEventListener('change', scheduleEval);   // selects / radios / checkboxes
-  updateLattice();
+  // restore state: a #cfg= share-link wins, else the autosaved session
+  let st=null;
+  const m=location.hash.match(/#cfg=([A-Za-z0-9_-]+)/);
+  if(m){ try{ st=JSON.parse(b64uDec(m[1])); }catch(e){} }
+  if(!st){ try{ st=JSON.parse(localStorage.getItem(STATE_KEY)||''); }catch(e){} }
+  if(st) applyState(st);
+  setHelpLang(helpLang());
+  updateLattice(); renderPlan();
   if(inputsValid()) runEvaluate();                 // populate immediately on load
 })();
 
@@ -1098,5 +1554,6 @@ function loadCifFile(file){
   });
 })();
 </script>
+<div id="printsheet"></div>
 </body>
 </html>

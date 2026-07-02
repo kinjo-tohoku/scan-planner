@@ -734,6 +734,59 @@
     return L.join("\n");
   }
 
+  // Combined "experiment plan" export: several scan definitions (single lines and/or
+  // maps) as ONE .scn. NS restarts at 1 inside each GO block of at most CHUNK lines
+  // (same rule as map_to_scn); a `"` comment marks where each plan item starts.
+  // items: [{kind:'line', scan:{...}} | {kind:'map', map:{...}, trim:bool}]
+  function combined_to_scn(cfg, items) {
+    items = items || [];
+    var u = cfg.plane_u || [1, 0, 0], v = cfg.plane_v || [0, 1, 0];
+    var spec = build(cfg).spec;
+    var defs = [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i] || {};
+      if (it.kind === "map" && it.map) {
+        var sc = mapScans(cfg, it.map, !!it.trim);
+        for (var j = 0; j < sc.length; j++)
+          defs.push({ d: sc[j], item: i, tag: "map (" + sc.length + " lines)" });
+      } else if (it.scan) {
+        var s = it.scan;
+        defs.push({ d: { start: s.start.map(Number), step: s.step.map(Number),
+                         npts: s.npts | 0,
+                         monitor: s.monitor == null ? 10000 : (s.monitor | 0),
+                         nt: s.nt | 0 },
+                    item: i, tag: "line" });
+      }
+    }
+    var n = defs.length;
+    var L = [headerComment(cfg, "plan " + items.length + " scans, " + n + " lines: ", spec)];
+    if (n === 0) { L.push('" empty plan'); return L.join("\n"); }
+    var nblocks = Math.floor((n + CHUNK - 1) / CHUNK);
+    if (nblocks > 1)
+      L.push('" ' + n + " lines > " + CHUNK + "/GO: emitted as " + nblocks
+        + " GO blocks (NS restarts at 1 in each block)");
+    var last = -1;
+    for (var c0 = 0; c0 < n; c0 += CHUNK) {
+      var chunk = defs.slice(c0, c0 + CHUNK);
+      for (var k = 0; k < chunk.length; k++) {
+        if (chunk[k].item !== last) {
+          last = chunk[k].item;
+          L.push('" -- scan ' + (last + 1) + ": " + chunk[k].tag);
+        }
+        var d = chunk[k].d;
+        L.push(scanLine(k + 1, d.start, d.step, d.npts, d.monitor, d.nt, u, v));
+      }
+      L.push(chunk.length === 1 ? "GO 1" : "GO 1-" + chunk.length);
+    }
+    function oopc(hkl) { var Q = matVec(spec.B, [+hkl[0], +hkl[1], +hkl[2]]); return Math.abs(dot(Q, spec.n)); }
+    for (var m2 = 0; m2 < defs.length; m2++)
+      if (oopc(defs[m2].d.start) > 1e-4 || oopc(defs[m2].d.step) > 1e-4) {
+        L.push('" NOTE: some scans leave the scattering plane (out-of-plane points are unreachable)');
+        break;
+      }
+    return L.join("\n");
+  }
+
   var API = {
     DEFAULT_CONFIG: DEFAULT_CONFIG, DEFAULT_LIMITS: DEFAULT_LIMITS, CHUNK: CHUNK,
     Unreachable: Unreachable,
@@ -742,7 +795,8 @@
     evaluate: evaluate, grid: grid, gridQ: gridQ, reflections: reflections,
     satellites: satellites, brillouinZone: brillouinZone, resolution: resolution, qeAlong: qeAlong,
     qxy: function (cfg, hkl) { var b = build(cfg); return qd(b.spec, hkl); },
-    to_scn: to_scn, evaluate_map: evaluate_map, map_to_scn: map_to_scn
+    to_scn: to_scn, evaluate_map: evaluate_map, map_to_scn: map_to_scn,
+    combined_to_scn: combined_to_scn
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = API;
