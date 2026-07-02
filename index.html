@@ -278,6 +278,7 @@
         <input id="maghalf" value="60" style="width:50px" oninput="scheduleEval()">
       </div>
       <div class="hint" style="margin-top:4px">Two opposing windows (±half-width) that rotate with the sample. A point is reachable only when <b>both</b> the incident and scattered beams clear a window → two symmetric lobes centred on the <b>target reflection</b>. Elastic geometry.</div>
+      <div class="hint" id="magwarn" style="margin-top:4px;color:var(--red);display:none"></div>
     </div>
 
     <div class="card">
@@ -304,13 +305,13 @@
       <div class="grid g4" id="endrow">
         <label>h end<input id="h1" value="2" oninput="onScanInput()"></label>
         <label>k end<input id="k1" value="0" oninput="onScanInput()"></label>
-        <label>l end<input id="l1" value="0"></label>
+        <label>l end<input id="l1" value="0" oninput="onScanInput()"></label>
         <label>E end<input id="E1" value="0" oninput="onScanInput()"></label>
       </div>
       <div class="grid g4" id="steprow">
         <label>&Delta;h<input id="dh" value="0.05" oninput="onScanInput()"></label>
         <label>&Delta;k<input id="dk" value="0" oninput="onScanInput()"></label>
-        <label>&Delta;l<input id="dl" value="0"></label>
+        <label>&Delta;l<input id="dl" value="0" oninput="onScanInput()"></label>
         <label>&Delta;E<input id="dE" value="0" oninput="onScanInput()"></label>
       </div>
       <div class="grid g2" id="mapinner" style="display:none;margin-top:2px" title="The inner (fast) sweep of the map: a line of points along this direction, repeated for each outer step.">
@@ -447,7 +448,9 @@ function getConfig() {
     centering:$('centering').value, km:[num('kmh'),num('kmk'),num('kml')],
     // C2 = user soft limit; A1 (mono 2θ) and A2 (sample 2θ) are internal hard limits.
     limits:{ C2:[Number.isFinite(num('C2lo'))?num('C2lo'):-180, Number.isFinite(num('C2hi'))?num('C2hi'):180], A2:[5,110], A1:[18,53] },
-    magnet:{ on: !!($('magtype') && $('magtype').value!=='none'),
+    // mid-edit NaN in any magnet field would block every point (winNear(NaN)=false) — off until valid
+    magnet:{ on: !!($('magtype') && $('magtype').value!=='none')
+                 && [num('magh'),num('magk'),num('magl'),num('maghalf')].every(Number.isFinite),
              ref: [num('magh'), num('magk'), num('magl')], half_deg: num('maghalf') }
   };
 }
@@ -808,11 +811,23 @@ function reflTrace(traces){
 }
 function plot(pts){
   const span=c=>{const v=pts.map(p=>p[c]); return amax(v)-amin(v);};
-  const vH=span('h')>1e-9, vK=span('k')>1e-9, vE=span('E')>1e-9;
-  if((vH||vK) && !vE) plotHK(pts);                       // Q-scan (const E) → (h,k) plane
+  const vH=span('h')>1e-9, vK=span('k')>1e-9, vL=span('l')>1e-9, vE=span('E')>1e-9;
+  if((vH||vK||vL) && !vE) plotHK(pts);                   // Q-scan (const E) → in-plane (Qx,Qy) view; l counts too (HHL planes)
   else plot1D(pts, vE?'E':(vH?'h':(vK?'k':'E')));        // energy/mixed → x = swept amount
 }
 
+// The magnet blocking model sees only the in-plane part of the target reflection: a ref with
+// no in-plane component constrains nothing. Surface that as a warning instead of failing silently.
+function magnetWarn(cfg){
+  const el=$('magwarn'); if(!el) return;
+  let msg='';
+  if(cfg.magnet && cfg.magnet.on && typeof Planner!=='undefined'){
+    try{ const r=Planner.qxy(cfg, cfg.magnet.ref);
+      if(!(Math.hypot(r.qx,r.qy)>1e-6)) msg='⚠ target reflection '+fmtv(cfg.magnet.ref)+' has no in-plane component — magnet restriction not applied';
+    }catch(e){}
+  }
+  el.textContent=msg; el.style.display=msg?'':'none';
+}
 // Small magnet schematic for a corner of the (Qx,Qy) view: target reflection Q drawn UP, the
 // two windows LEFT/RIGHT (⟂ Q, since elastic beams straddle Q), the incident ki, and the
 // in-plane basis vectors u,v. Returns traces + annotations to merge into the plot.
@@ -821,9 +836,10 @@ function magnetIcon(cfg, qmax){
   const out={traces:[], ann:[]};
   if(!cfg.magnet || !cfg.magnet.on || !(qmax>0)) return out;
   let refQ; try{ refQ=Planner.qxy(cfg, cfg.magnet.ref); }catch(e){ return out; }
-  if(!refQ || !(refQ.q>1e-6)) return out;
+  const qip=refQ?Math.hypot(refQ.qx,refQ.qy):0;          // blocking uses only the in-plane part
+  if(!(qip>1e-6)) return out;                            // out-of-plane ref → restriction inert (warned) → no icon
   const half=((+cfg.magnet.half_deg)||60)*Math.PI/180;               // schematic frame: target Q drawn "up"
-  const ki=Math.abs(+cfg.kfix)||2.66, th=Math.asin(Math.min(1, refQ.q/(2*ki)));
+  const ki=Math.abs(+cfg.kfix)||2.66, th=Math.asin(Math.min(1, qip/(2*ki)));
   const Rm=qmax*0.19, cx=-qmax*0.74, cy=qmax*0.74;
   const ln=(p,col,w)=>out.traces.push({x:p.x,y:p.y,mode:'lines',line:{color:col,width:w},hoverinfo:'skip',showlegend:false});
   ln(arcPts(cx,cy,Rm,0,2*Math.PI,56),'rgba(170,175,185,0.4)',1);                      // body
@@ -871,7 +887,7 @@ function plot1D(pts, axis){
   // energy scan does not collapse to a single column.
   const ok={x:[],y:[],t:[]}, bad={x:[],y:[],t:[]};
   pts.forEach((p,i)=>{ const d=p.reachable?ok:bad; const a=p.angles||{};
-    d.x.push(p[axis]); d.y.push(a.A2!==undefined?a.A2:null);
+    d.x.push(p[axis]); d.y.push(a.A2!==undefined?a.A2:0);   // no angles at all (triangle fails etc.) → baseline 0, keep the ✗ visible
     d.t.push(hover(p,i,`${axis}=${p[axis]} Q=(${p.h},${p.k},${p.l})`)); });
   const traces=[
     {x:pts.map(p=>p[axis]), y:pts.map(p=>p.angles&&p.angles.A2!==undefined?p.angles.A2:null),
@@ -968,6 +984,7 @@ async function runEvaluate(){
   try{
     const e = isMap() ? getMap().start[3] : getScan().start[3];
     const cfg = getConfig();
+    magnetWarn(cfg);
     lastGrid = await api('/api/gridq',{config:cfg, grid:{e, n:51}});
     const qmax = lastGrid.qx[lastGrid.qx.length-1];
     const refl = await api('/api/reflections',{config:cfg, refl:{qmax}});
@@ -984,7 +1001,10 @@ async function exportScn(){
     $('scn').value = res.scn;
   }catch(e){ showErr(e.message); }
 }
-function copyScn(){ navigator.clipboard.writeText($('scn').value); }
+function copyScn(){   // clipboard API needs https/localhost — select+execCommand fallback for file://
+  const t=$('scn'), fallback=()=>{ t.focus(); t.select(); try{ document.execCommand('copy'); }catch(e){} };
+  try{ navigator.clipboard.writeText(t.value).catch(fallback); }catch(e){ fallback(); }
+}
 function downloadScn(){
   const blob=new Blob([$('scn').value],{type:'text/plain'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
@@ -1034,6 +1054,7 @@ function applyCif(text){
   if(cell.beta>0)  $('beta').value=cell.beta;
   if(cell.gamma>0) $('gamma').value=cell.gamma;
   $('centering').value = cell.centering || 'P';   // from space group, else show all
+  updateLattice();                                // refresh the a*,b*,cosγ* display too
   showErr('');
   runEvaluate();
 }
