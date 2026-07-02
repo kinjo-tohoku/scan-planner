@@ -148,7 +148,9 @@
       <h3>Generated .scn</h3>
       <p>Lattice / spectrometer / RS are assumed set &amp; tuned beforehand and are <b>not</b> written.
          Only scan definitions (<code>NS/HS/KS/ES/DE/DH/DK/NP/MN[/NT]</code>, comma-separated) and <code>GO</code> are emitted.
-         filman is in-plane (h,k), so the scan <code>l</code> is ignored (out-of-plane = unreachable).</p>
+         filman is in-plane (h,k), so the scan <code>l</code> is ignored (out-of-plane = unreachable).
+         The header comment prints the <b>AS/BS/CG</b> to set in filman for the current mount
+         (they follow the plane: AS=|Q(u)|, BS=|Q(v)|, CG=cos&ang;).</p>
     </div>
   </div>
 </div>
@@ -161,7 +163,7 @@
         <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)">input
           <select id="latmode" onchange="updateLattice();scheduleEval()" style="width:auto">
             <option value="real" selected>real a,b,c</option>
-            <option value="recip">reciprocal a*,b*,cosγ*</option>
+            <option value="recip">reciprocal AS,BS,CG (filman)</option>
           </select></label>
       </div>
       <div class="grid g3">
@@ -172,10 +174,10 @@
         <label>&beta; [&deg;]<input id="beta" value="90"></label>
         <label>&gamma; [&deg;]<input id="gamma" value="90"></label>
       </div>
-      <div class="grid g3" style="margin-top:4px" title="filman AS=a*, BS=b*, CG=cosγ*. Editable when 'reciprocal' is selected.">
-        <label>a* [&Aring;&#8315;&sup1;]<input id="astar" value="1.5708" disabled></label>
-        <label>b* [&Aring;&#8315;&sup1;]<input id="bstar" value="1.5708" disabled></label>
-        <label>cos&gamma;*<input id="cgs" value="0" disabled></label>
+      <div class="grid g3" style="margin-top:4px" title="filman lattice constants for THIS mount — they follow the scattering plane u,v below: AS=|Q(u)|, BS=|Q(v)|, CG=cos∠(Q(u),Q(v)). Only the default plane (100)/(010) gives a*, b*, cosγ*. In 'reciprocal' input mode you type these directly (u,v become inactive and scan h,k mean filman H,K along these vectors).">
+        <label>AS=|Q(u)| [&Aring;&#8315;&sup1;]<input id="astar" value="1.5708" disabled></label>
+        <label>BS=|Q(v)| [&Aring;&#8315;&sup1;]<input id="bstar" value="1.5708" disabled></label>
+        <label>CG=cos&ang;(u,v)<input id="cgs" value="0" disabled></label>
       </div>
       <div class="row" style="margin-top:6px;align-items:center">
         <label style="flex-direction:row;align-items:center;gap:6px;color:var(--mut)"
@@ -194,7 +196,7 @@
         <input id="kml" value="0" style="width:52px" oninput="scheduleEval()">
         <span class="hint" style="margin:0">&rarr; magnetic satellites G&plusmn;k_m</span>
       </div>
-      <div class="hint" style="margin-top:6px">Scattering plane = two orienting reflections u, v (default (1,0,0)-(0,1,0))</div>
+      <div class="hint" style="margin-top:6px">Scattering plane = two orienting reflections u, v (default (1,0,0)-(0,1,0)) — the AS/BS/CG above follow this mount</div>
       <div class="grid g3" style="margin-top:6px">
         <label>u_h<input id="uh" value="1" oninput="onPlaneChange()"></label>
         <label>u_k<input id="uk" value="0" oninput="onPlaneChange()"></label>
@@ -397,17 +399,32 @@ function updateLattice(){
   const mode=latticeMode();
   ['a','b','alpha','beta','gamma'].forEach(id=>$(id).disabled=(mode!=='real'));
   ['astar','bstar','cgs'].forEach(id=>$(id).disabled=(mode!=='recip'));
+  // recip mode: the entered AS/BS/CG *are* the in-plane basis (filman-file values) → u,v inactive
+  ['uh','uk','ul','vh','vk','vl'].forEach(id=>{ if($(id)) $(id).disabled=(mode==='recip'); });
   if(mode==='real'){
+    // filman's AS/BS/CG follow the MOUNT, not the cell: AS=|Q(u)|, BS=|Q(v)|, CG=cos∠(Q(u),Q(v)).
+    // (= a*, b*, cosγ* only for the default (100)/(010) plane.) Same Busing–Levy B as the engine,
+    // inlined so the server build (no planner.js) shows it too.
     const a=num('a'),b=num('b'),c=num('c');
     const al=num('alpha')*Math.PI/180, be=num('beta')*Math.PI/180, ga=num('gamma')*Math.PI/180;
-    const ca=Math.cos(al),cb=Math.cos(be),cg=Math.cos(ga),sa=Math.sin(al),sb=Math.sin(be);
-    const V=a*b*c*Math.sqrt(Math.max(0,1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg));
-    if(V>0){
-      $('astar').value=(2*Math.PI*b*c*sa/V).toFixed(4);
-      $('bstar').value=(2*Math.PI*a*c*sb/V).toFixed(4);
-      $('cgs').value=((ca*cb-cg)/(sa*sb)).toFixed(4);
+    const ca=Math.cos(al),cb=Math.cos(be),cg=Math.cos(ga),sa=Math.sin(al),sb=Math.sin(be),sg=Math.sin(ga);
+    const disc=1-ca*ca-cb*cb-cg*cg+2*ca*cb*cg;
+    if(disc>0 && a>0 && b>0 && c>0){
+      const V=a*b*c*Math.sqrt(disc);
+      const as_=2*Math.PI*b*c*sa/V, bs_=2*Math.PI*a*c*sb/V, cs_=2*Math.PI*a*b*sg/V;
+      const cgs=(ca*cb-cg)/(sa*sb), cbs=(ca*cg-cb)/(sa*sg);
+      const sgs=Math.sqrt(Math.max(0,1-cgs*cgs)), sbs=Math.sqrt(Math.max(0,1-cbs*cbs));
+      const B=[[as_,bs_*cgs,cs_*cbs],[0,bs_*sgs,-cs_*sbs*ca],[0,0,2*Math.PI/c]];
+      const q=w=>[B[0][0]*w[0]+B[0][1]*w[1]+B[0][2]*w[2], B[1][1]*w[1]+B[1][2]*w[2], B[2][2]*w[2]];
+      const Bu=q([num('uh'),num('uk'),num('ul')]), Bv=q([num('vh'),num('vk'),num('vl')]);
+      const AS=Math.hypot(Bu[0],Bu[1],Bu[2]), BS=Math.hypot(Bv[0],Bv[1],Bv[2]);
+      if(isFinite(AS) && AS>1e-9 && isFinite(BS) && BS>1e-9){
+        let CG=(Bu[0]*Bv[0]+Bu[1]*Bv[1]+Bu[2]*Bv[2])/(AS*BS);
+        if(Math.abs(CG)<5e-5) CG=0;                        // hide float dust (−0.0000)
+        $('astar').value=AS.toFixed(4); $('bstar').value=BS.toFixed(4); $('cgs').value=CG.toFixed(4);
+      }
     }
-  } else {   // reciprocal → real (in-plane: α=β=90; γ=180−γ*; c kept as-is)
+  } else {   // reciprocal → effective lattice (in-plane: α=β=90; γ=180−γ*; c kept as-is)
     const as=num('astar'), bs=num('bstar');
     let cgs=num('cgs'); cgs=Math.max(-0.999, Math.min(0.999, cgs));
     const sgs=Math.sqrt(1-cgs*cgs);
@@ -444,7 +461,7 @@ function getConfig() {
     d_mono:3.355, d_ana:parseFloat($('ana').value),   // mono = PG002 fixed
     fixed:$('fixed').value, kfix:num('kfix'),
     sense_m:1, sense_s:1, sense_a:1,                   // GPTAS hardware: all +1 fixed
-    plane_u:[num('uh'),num('uk'),num('ul')], plane_v:[num('vh'),num('vk'),num('vl')],
+    plane_u:planeU(), plane_v:planeV(),               // recip input mode → effective plane (100)/(010)
     centering:$('centering').value, km:[num('kmh'),num('kmk'),num('kml')],
     // C2 = user soft limit; A1 (mono 2θ) and A2 (sample 2θ) are internal hard limits.
     limits:{ C2:[Number.isFinite(num('C2lo'))?num('C2lo'):-180, Number.isFinite(num('C2hi'))?num('C2hi'):180], A2:[5,110], A1:[18,53] },
@@ -506,8 +523,11 @@ function mapType(){ const e=$('scantype'); return (e && e.value==='disp') ? 'dis
 // scattering-plane direction. Plane map: inner along u, outer along v. Dispersion: inner = E,
 // outer along u or v. Sweeping along u,v (the orienting reflections) makes ANY plane work
 // (e.g. (110)/(001) = HHL); default u=(100),v=(010) is the old h×k map.
-function planeU(){ return [num('uh'),num('uk'),num('ul')]; }
-function planeV(){ return [num('vh'),num('vk'),num('vl')]; }
+// In reciprocal input mode the entered AS/BS/CG *are* the in-plane basis (the filman-file
+// values for the mount), so the effective orienting vectors are (100)/(010) of the derived
+// lattice and the scan h,k mean filman's H,K along those vectors (l must stay 0).
+function planeU(){ return latticeMode()==='recip' ? [1,0,0] : [num('uh'),num('uk'),num('ul')]; }
+function planeV(){ return latticeMode()==='recip' ? [0,1,0] : [num('vh'),num('vk'),num('vl')]; }
 function fmtv(v){ return '('+v.map(x=>{ const r=Math.round(x*100)/100; return Object.is(r,-0)?0:r; }).join(' ')+')'; }
 function dispDir(){ const el=$('dispdir'); return (el && el.value==='v') ? 'v' : 'u'; }
 function dispVec(){ return dispDir()==='v' ? planeV() : planeU(); }

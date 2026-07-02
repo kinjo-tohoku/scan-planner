@@ -586,10 +586,26 @@
     return Math.abs(d - 3.355) < 0.01 ? "PG002"
       : Math.abs(d - 1.6775) < 0.01 ? "PG004" : "d=" + d;
   }
-  function headerComment(cfg, prefix) {
-    return '" ' + (prefix || "") + "a=" + cfg.a + " b=" + cfg.b + " c=" + cfg.c
+  function headerComment(cfg, prefix, spec) {
+    var s = '" ' + (prefix || "") + "a=" + cfg.a + " b=" + cfg.b + " c=" + cfg.c
       + " fixed-" + (cfg.fixed || "kf") + "=" + cfg.kfix
       + " ana=" + anaName(+cfg.d_ana);
+    // filman's lattice constants are MOUNT-dependent: AS=|Q(u)|, BS=|Q(v)|, CG=cos∠(Q(u),Q(v))
+    // (= a*, b*, cosγ* only for the default (100)/(010) plane). Print them so the operator can
+    // copy them straight into the filman file for this scattering plane.
+    if (spec) {
+      var u = cfg.plane_u || [1, 0, 0], v = cfg.plane_v || [0, 1, 0];
+      var Bu = matVec(spec.B, [+u[0], +u[1], +u[2]]), Bv = matVec(spec.B, [+v[0], +v[1], +v[2]]);
+      var AS = norm(Bu), BS = norm(Bv);
+      if (AS > 1e-9 && BS > 1e-9) {
+        var CGv = dot(Bu, Bv) / (AS * BS);
+        if (Math.abs(CGv) < 5e-5) CGv = 0;               // hide float dust (-0.0000)
+        var f = function (w) { return w.map(function (x) { return gfmt(+x); }).join(" "); };
+        s += '\n" set filman for plane u=(' + f(u) + ") v=(" + f(v) + "): AS=" + AS.toFixed(4)
+          + " BS=" + BS.toFixed(4) + " CG=" + CGv.toFixed(4);
+      }
+    }
+    return s;
   }
   // Express a Miller vector in the scattering-plane basis (u,v): P ≈ ξu·u + ξv·v.
   // filman specifies scans in these in-plane coordinates (HS along u, KS along v), NOT raw
@@ -617,7 +633,7 @@
     var u = cfg.plane_u || [1, 0, 0], v = cfg.plane_v || [0, 1, 0];
     var spec = build(cfg).spec;
     function oopc(P) { var Q = matVec(spec.B, [+P[0], +P[1], +P[2]]); return Math.abs(dot(Q, spec.n)); }
-    var L = [headerComment(cfg),
+    var L = [headerComment(cfg, "", spec),
       scanLine(scan_no, scan.start, scan.step, scan.npts,
         scan.monitor == null ? 10000 : scan.monitor, scan.nt || 0, u, v),
       "GO " + scan_no];
@@ -697,7 +713,8 @@
   function map_to_scn(cfg, md, trim) {
     var u = cfg.plane_u || [1, 0, 0], v = cfg.plane_v || [0, 1, 0];
     var scans = mapScans(cfg, md, trim), n = scans.length;
-    var L = [headerComment(cfg, "map " + n + " lines: ")];
+    var spec = build(cfg).spec;          // reused for the header AS/BS/CG + the out-of-plane note
+    var L = [headerComment(cfg, "map " + n + " lines: ", spec)];
     if (n === 0) { L.push('" no reachable points; revise the range'); return L.join("\n"); }
     var nblocks = Math.floor((n + CHUNK - 1) / CHUNK);
     if (nblocks > 1)
@@ -711,8 +728,7 @@
       var k = chunk.length;
       L.push(k === 1 ? "GO 1" : "GO 1-" + k);
     }
-    var spec = build(cfg).spec;          // out-of-plane test against the actual plane normal
-    function oopc(hkl) { var Q = matVec(spec.B, [+hkl[0], +hkl[1], +hkl[2]]); return Math.abs(dot(Q, spec.n)); }
+    function oopc(hkl) { var Q = matVec(spec.B, [+hkl[0], +hkl[1], +hkl[2]]); return Math.abs(dot(Q, spec.n)); }   // vs the actual plane normal
     if (oopc(md.start) > 1e-4 || oopc(md.step) > 1e-4 || oopc(md.outer) > 1e-4)
       L.push('" NOTE: scan leaves the scattering plane (out-of-plane points are unreachable)');
     return L.join("\n");
